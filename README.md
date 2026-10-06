@@ -12,6 +12,8 @@ Alt + Tab for Omarchy workspaces.
   instead: a Claude Code session's name (as the top bar shows it), the folder of a
   shell prompt, or the running program's title.
 
+![Workspace Switcher](preview.png)
+
 ## Install
 
 ```bash
