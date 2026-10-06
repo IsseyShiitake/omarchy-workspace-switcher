@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.antoniowav.workspace-switcher",
+  "name": "Workspace Switcher",
+  "version": "1.0.0",
+  "author": "antoniowav",
+  "license": "MIT",
+  "description": "Super + Tab flips to your previous workspace; hold Super to see every workspace in order of visit, with live window previews, and Tab through them.",
+  "keepLoaded": true,
+  "kinds": ["service"],
+  "entryPoints": {
+    "service": "WorkspaceSwitcher.qml"
+  }
+}
