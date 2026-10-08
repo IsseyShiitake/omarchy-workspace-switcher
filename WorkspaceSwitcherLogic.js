@@ -153,6 +153,22 @@ function sortByRecent(workspaces, recent) {
   })
 }
 
+// The cards in display order: plain number order when numericOrder is set,
+// otherwise order of visit. Same workspace objects, only the order differs,
+// so a selection computed in one order maps onto the other by identity.
+function displayOrder(workspaces, recent, numericOrder) {
+  if (numericOrder) return workspaces.slice().sort(function(a, b) { return a.id - b.id })
+  return sortByRecent(workspaces, recent)
+}
+
+// The display position the overview opens with: the card Tab would reach from
+// the focused one in visit order (first Tab = last-visited workspace), mapped
+// onto however the cards are displayed. `ranked` is the visit-ordered list.
+function initialSelection(ranked, display, pendingSteps) {
+  var target = (ranked || [])[cycleSelection(0, pendingSteps, (ranked || []).length)]
+  return Math.max(0, (display || []).indexOf(target))
+}
+
 // The Lua run with `hyprctl eval` when the plugin loads, and again after every
 // config reload (which drops runtime bindings). Alt + Tab cycles workspaces so
 // Super + Tab stays free for this machine's window cycling. Letting go of Alt
@@ -252,6 +268,8 @@ if (typeof module !== "undefined") {
     bindingScript: bindingScript,
     restoreScript: restoreScript,
     sortByRecent: sortByRecent,
+    displayOrder: displayOrder,
+    initialSelection: initialSelection,
     layoutFor: layoutFor,
     moveSelection: moveSelection,
     cycleSelection: cycleSelection,

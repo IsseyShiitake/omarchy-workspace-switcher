@@ -65,6 +65,20 @@ assert.equal(L.windowLabel("foot", "me@host:~/code#", "Foot"), "~/code")
 assert.equal(L.windowLabel("konsole", "me@host:~/code — Konsole", "Konsole"), "~/code")
 assert.equal(L.windowLabel("konsole", "nvim notes.md — Konsole", "Konsole"), "nvim notes.md")
 
+// Display order: plain numbers when set, visit order otherwise. The initial
+// highlight starts on the last-visited card however they display, so a tap
+// still flips there: ranked [3f, 2, 4, 1] on cards [1, 2, 3, 4] starts on 2.
+const cards = [3, 1, 2, 4].map((id) => ({ id, focused: id === 3 }))
+assert.deepEqual(L.displayOrder(cards, [2, 4, 1], true).map((w) => w.id), [1, 2, 3, 4])
+assert.deepEqual(L.displayOrder(cards, [2, 4, 1], false).map((w) => w.id), [3, 2, 4, 1])
+const ranked = L.sortByRecent(cards, [2, 4, 1])
+const numeric = L.displayOrder(cards, [2, 4, 1], true)
+assert.equal(numeric[L.initialSelection(ranked, numeric, 1)].id, 2)
+assert.equal(numeric[L.initialSelection(ranked, numeric, -1)].id, 1)
+assert.equal(numeric[L.initialSelection(ranked, numeric, 0)].id, 3)
+assert.equal(L.initialSelection(ranked, ranked, 1), 1)
+assert.equal(L.initialSelection([], [], 1), 0)
+
 // Malformed geometry never poisons the layout: the client is skipped.
 const noGeom = L.buildWorkspaces({
   monitors: [{ id: 0, x: 0, y: 0, width: 1920, height: 1080, scale: 1,

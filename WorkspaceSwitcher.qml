@@ -60,6 +60,12 @@ Item {
   // of the theme. Off = plain theme background. Light/dark follows the theme
   // either way: every color here resolves from the active theme at runtime.
   property bool accentTint: true
+
+  // Setting: cards always display in number order (1, 2, 3, …) instead of
+  // order of visit. Tap-Alt+Tab still flips to the workspace you were on
+  // before — the highlight just starts there; further Tabs walk the cards
+  // as displayed. Off = cards follow order of visit, current first.
+  property bool numericOrder: true
   readonly property color backdropColor: {
     var base = Color.background
     if (!root.accentTint) return Qt.alpha(base, 0.88)
@@ -211,10 +217,10 @@ Item {
       close()
       return
     }
-    list = Logic.sortByRecent(list, recent)
+    var ranked = Logic.sortByRecent(list, recent)
+    list = Logic.displayOrder(list, recent, root.numericOrder)
 
-    var selected = Logic.cycleSelection(Math.max(0, list.findIndex(function(ws) { return ws.focused })),
-      pendingSteps, list.length)
+    var selected = Logic.initialSelection(ranked, list, pendingSteps)
     pendingSteps = 0
     if (commitPending) {
       var target = Logic.commitTarget(true, list, selected)
@@ -502,7 +508,11 @@ Item {
                     width: Math.max(8, modelData.w * screenArea.width)
                     height: Math.max(8, modelData.h * screenArea.height)
                     radius: Math.max(2, Style.cornerRadius / 2)
-                    color: Qt.alpha(Color.menu.text, 0.08)
+                    // Solid while the preview is missing, so windows without
+                    // screencopy content read as tiles instead of holes;
+                    // near-clear under a live preview, where the bed behind
+                    // it does the compositing.
+                    color: preview.hasContent ? Qt.alpha(Color.menu.text, 0.08) : Color.menu.background
                     border.width: 1
                     border.color: winMouse.containsMouse ? Color.accent : Qt.alpha(Color.menu.text, 0.18)
                     clip: true

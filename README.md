@@ -57,9 +57,15 @@ Other plugins that take Alt + Tab conflict with this one: enable only one of the
 
 ## Configuration
 
-One setting, at the top of `WorkspaceSwitcher.qml`: `accentTint` (default `true`)
-washes the backdrop with a whisper of the theme's popup-border color. Set it to
-`false` for a plain theme background. Light/dark always follows the active theme.
+Two settings, at the top of `WorkspaceSwitcher.qml`:
+
+- `accentTint` (default `true`) washes the backdrop with a whisper of the
+  theme's popup-border color. Set it to `false` for a plain theme background.
+  Light/dark always follows the active theme.
+- `numericOrder` (default `true`) displays the cards in number order
+  (1, 2, 3, …) instead of order of visit. A tap still flips to the workspace
+  you were on before — the highlight just starts there; further Tabs walk the
+  cards as displayed. Set it to `false` for visit-ordered cards, current first.
 
 Workspaces you haven't visited since the shell started are listed last, in
 number order. The order starts fresh when the shell restarts.
