@@ -2,7 +2,9 @@
 // with node (test/logic-test.js).
 
 // Terminals are labelled by what they are doing, from the window title.
-var TERMINAL_CLASSES = ["foot", "footclient", "alacritty", "kitty", "com.mitchellh.ghostty"]
+var TERMINAL_CLASSES = ["foot", "footclient", "alacritty", "kitty", "com.mitchellh.ghostty",
+  "konsole", "org.kde.konsole", "gnome-terminal-server", "org.gnome.terminal",
+  "xterm", "wezterm", "org.wezfurlong.wezterm", "terminator"]
 
 function normalizeAddress(value) {
   var address = String(value || "").toLowerCase()
@@ -24,7 +26,15 @@ function appNameIndex(entries) {
     var name = String(entry.name || "")
     if (!name) continue
     if (entry.startupClass) index[String(entry.startupClass).toLowerCase()] = name
-    if (entry.id) index[String(entry.id).toLowerCase()] = name
+    if (entry.id) {
+      // Window classes never carry the ".desktop" suffix, so index the id
+      // without it; reverse-DNS ids ("org.gimp.GIMP") also answer to their
+      // last label, for windows whose class is just the basename ("gimp").
+      var idKey = String(entry.id).toLowerCase().replace(/\.desktop$/, "")
+      if (idKey) index[idKey] = name
+      var base = idKey.split(".").pop()
+      if (base && base !== idKey && index[base] === undefined) index[base] = name
+    }
     var url = String(entry.execString || "").match(/https?:\/\/([^\/"' ]+)/)
     if (url) index["web:" + url[1].toLowerCase().replace(/^www\./, "")] = name
   }
@@ -38,7 +48,7 @@ function appName(cls, index) {
     var domain = web[1].replace(/^www\./, "")
     return index["web:" + domain] || capitalize(domain.split(".")[0])
   }
-  if (lower === "soffice") return "LibreOffice"
+  if (lower === "soffice" || lower === "soffice.bin") return "LibreOffice"
   return index[lower] || index[lower.split(".").pop()] || capitalize(lower.split(".").pop())
 }
 
@@ -49,8 +59,17 @@ function windowLabel(cls, title, app) {
   if (TERMINAL_CLASSES.indexOf(String(cls || "").toLowerCase()) === -1) return app
   var text = String(title || "").trim()
   if (!text || text.toLowerCase() === String(cls).toLowerCase()) return app
+  // Terminals that append their own name to the title ("… — Konsole") lose it.
+  if (app) {
+    var tail = " — " + app
+    if (text.length > tail.length && text.slice(-tail.length).toLowerCase() === tail.toLowerCase())
+      text = text.slice(0, -tail.length).trim()
+  }
+  if (!text) return app
   var prompt = text.match(/^[^@\s]+@[^:\s]+:\s*(.+)$/)
-  return prompt ? prompt[1] : text
+  // The prompt's trailing $, # or % is shell decoration, not the directory.
+  if (prompt) return prompt[1].replace(/\s*[$#%]+$/, "") || app
+  return text
 }
 
 // Every workspace that has windows, plus the visible ones, sorted by id, each
@@ -87,6 +106,10 @@ function buildWorkspaces(state, names, waylandFor) {
     if (!ws) return
     var address = normalizeAddress(c.address)
     if (!address) return
+    // A client without usable geometry would poison the layout with NaN.
+    if (!Array.isArray(c.at) || !Array.isArray(c.size)
+      || typeof c.at[0] !== "number" || typeof c.at[1] !== "number"
+      || typeof c.size[0] !== "number" || typeof c.size[1] !== "number") return
     var app = appName(c.class || c.initialClass, names)
     ws.windows.push({
       address: address,
@@ -131,38 +154,40 @@ function sortByRecent(workspaces, recent) {
 }
 
 // The Lua run with `hyprctl eval` when the plugin loads, and again after every
-// config reload (which drops runtime bindings). Letting go of Super is a
-// release binding on each Super key that must see every release: transparent,
-// or Hyprland shadows it once Super + Tab has fired, so it never fires;
-// non_consuming, so apps still see Super; ignore_mods, so it fires with Shift
+// config reload (which drops runtime bindings). Alt + Tab cycles workspaces so
+// Super + Tab stays free for this machine's window cycling. Letting go of Alt
+// is a release binding on each Alt key that must see every release: transparent,
+// or Hyprland shadows it once Alt + Tab has fired, so it never fires;
+// non_consuming, so apps still see Alt; ignore_mods, so it fires with Shift
 // held too. It has no description, so it stays out of the keybindings list.
 function bindingScript(appId, owner) {
   function global(name) { return 'hl.dsp.global("' + appId + ':' + name + '")' }
   return [
-    'hl.unbind("SUPER + TAB")',
-    'hl.unbind("SUPER + SHIFT + TAB")',
-    'hl.unbind("SUPER + Super_L")',
-    'hl.unbind("SUPER + Super_R")',
-    'hl.bind("SUPER + TAB", ' + global("next") + ', { description = "Switch workspace (hold Super)" })',
-    'hl.bind("SUPER + SHIFT + TAB", ' + global("previous") + ', { description = "Switch workspace backwards (hold Super)" })',
-    'for _, key in ipairs({ "Super_L", "Super_R" }) do hl.bind("SUPER + " .. key, ' + global("commit")
+    'hl.unbind("ALT + TAB")',
+    'hl.unbind("ALT + SHIFT + TAB")',
+    'hl.unbind("ALT + Alt_L")',
+    'hl.unbind("ALT + Alt_R")',
+    'hl.bind("ALT + TAB", ' + global("next") + ', { description = "Switch workspace (hold Alt)" })',
+    'hl.bind("ALT + SHIFT + TAB", ' + global("previous") + ', { description = "Switch workspace backwards (hold Alt)" })',
+    'for _, key in ipairs({ "Alt_L", "Alt_R" }) do hl.bind("ALT + " .. key, ' + global("commit")
       + ', { release = true, transparent = true, non_consuming = true, ignore_mods = true }) end',
     '_G.workspaceSwitcherBindingOwner = "' + owner + '"'
   ].join("; ")
 }
 
-// The Lua run when the plugin unloads: gives Super + Tab and Super + Shift +
-// Tab back to Omarchy's defaults, unless a newer instance has bound them since.
+// The Lua run when the plugin unloads: releases the Alt bindings it took,
+// unless a newer instance has bound them since. Super + Tab is never touched,
+// so this machine's window cycling survives enable and disable alike.
+// (Upgrading from a version that took Super + Tab needs one `hyprctl reload`
+// to clear the old runtime binds from the compositor.)
 function restoreScript(owner) {
   return [
     'if _G.workspaceSwitcherBindingOwner == "' + owner + '" then',
     '_G.workspaceSwitcherBindingOwner = nil',
-    'hl.unbind("SUPER + TAB")',
-    'hl.unbind("SUPER + SHIFT + TAB")',
-    'hl.unbind("SUPER + Super_L")',
-    'hl.unbind("SUPER + Super_R")',
-    'hl.bind("SUPER + TAB", hl.dsp.focus({ workspace = "e+1" }), { description = "Next workspace" })',
-    'hl.bind("SUPER + SHIFT + TAB", hl.dsp.focus({ workspace = "e-1" }), { description = "Previous workspace" })',
+    'hl.unbind("ALT + TAB")',
+    'hl.unbind("ALT + SHIFT + TAB")',
+    'hl.unbind("ALT + Alt_L")',
+    'hl.unbind("ALT + Alt_R")',
     'end'
   ].join(" ")
 }

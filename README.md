@@ -2,10 +2,13 @@
 
 Alt + Tab for Omarchy workspaces.
 
-- **Tap Super + Tab** to flip to the workspace you were on before. Tap it again to flip back.
-- **Hold Super and press Tab** to see every workspace in order of visit, current first,
+Fork of [antoniowav/omarchy-workspace-switcher](https://github.com/antoniowav/omarchy-workspace-switcher),
+rebound to Alt + Tab so Super + Tab stays free for window cycling.
+
+- **Tap Alt + Tab** to flip to the workspace you were on before. Tap it again to flip back.
+- **Hold Alt and press Tab** to see every workspace in order of visit, current first,
   with live previews of its windows. Each Tab moves to the next most recent one
-  (Shift + Tab goes back), and letting go of Super switches to it.
+  (Shift + Tab goes back), and letting go of Alt switches to it.
 - Click a window to focus it, or click empty space in a card to go to that workspace.
   The arrow keys and Return work too, and Escape closes it.
 - Each window is labelled with its app's name. Terminals show what they are doing
@@ -17,15 +20,15 @@ Alt + Tab for Omarchy workspaces.
 ## Install
 
 ```bash
-omarchy plugin add https://github.com/antoniowav/omarchy-workspace-switcher --enable
+omarchy plugin add https://github.com/IsseyShiitake/omarchy-workspace-switcher --enable
 ```
 
-Super + Tab works as soon as the plugin is enabled.
+Alt + Tab works as soon as the plugin is enabled.
 
 ## Touchpad gestures (optional)
 
 To open the switcher with a three-finger swipe up and close it with a swipe down, add
-these lines to `~/.config/hypr/input.lua`:
+these lines to `~/.config/hypr/input.lua` (or to `hyprland.lua` on a flat config):
 
 ```lua
 hl.gesture({ fingers = 3, direction = "up", action = function() hl.dispatch(hl.dsp.global("io.github.antoniowav.workspace-switcher:toggle")) end })
@@ -40,25 +43,25 @@ and you may already use these swipes for something else.
 While the plugin is enabled it takes over three bindings at runtime, with `hyprctl
 eval`. It never edits your config files.
 
-| Keys | Omarchy's default | With the plugin |
-|---|---|---|
-| Super + Tab | Next workspace | Flip to the previous workspace, or hold Super to cycle |
-| Super + Shift + Tab | Previous workspace | Cycle backwards |
-| Letting go of Super | Nothing | Switch to the selected workspace (only after Super + Tab) |
+| Keys | With the plugin |
+|---|---|
+| Alt + Tab | Flip to the previous workspace, or hold Alt to cycle |
+| Alt + Shift + Tab | Cycle backwards |
+| Letting go of Alt | Switch to the selected workspace (only after Alt + Tab) |
 
-Letting go of Super is passed on to apps as usual. Super + Ctrl + Tab (former
-workspace) and Super + Alt + Tab (window groups) are unchanged.
+Letting go of Alt is passed on to apps as usual. Super + Tab is never touched:
+whatever you have bound there (window cycling, Omarchy's next workspace, …)
+works exactly as before, with the plugin enabled or disabled.
 
-When you disable or remove the plugin, Super + Tab and Super + Shift + Tab go back to
-Omarchy's next and previous workspace.
-
-If you have bound Super + Tab yourself in `~/.config/hypr/bindings.lua`, the plugin's
-binding replaces yours while it is enabled. Other plugins that take Super + Tab (window
-switchers, for example) conflict with this one: enable only one of them.
+Other plugins that take Alt + Tab conflict with this one: enable only one of them.
 
 ## Configuration
 
-None. Workspaces you haven't visited since the shell started are listed last, in
+One setting, at the top of `WorkspaceSwitcher.qml`: `accentTint` (default `true`)
+washes the backdrop with a whisper of the theme's popup-border color. Set it to
+`false` for a plain theme background. Light/dark always follows the active theme.
+
+Workspaces you haven't visited since the shell started are listed last, in
 number order. The order starts fresh when the shell restarts.
 
 ## Requirements

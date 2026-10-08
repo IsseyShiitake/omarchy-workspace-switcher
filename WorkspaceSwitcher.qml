@@ -11,13 +11,13 @@ import "WorkspaceSwitcherLogic.js" as Logic
 // as a card, in order of visit (current first), with its windows drawn at
 // their real positions as previews.
 //
-// While the plugin is loaded it binds Super + Tab to "next", Super + Shift +
-// Tab to "previous" and letting go of Super to "commit": the first Tab opens
+// While the plugin is loaded it binds Alt + Tab to "next", Alt + Shift +
+// Tab to "previous" and letting go of Alt to "commit": the first Tab opens
 // the overview with the previous workspace selected, each further Tab moves to
-// the next most recent, and letting go of Super goes to the one selected, so a
-// quick Super + Tab flips between the last two. Unloading it gives Super + Tab
-// back to Omarchy's next/previous workspace. The "toggle" and "close" globals
-// are for anything else, such as touchpad gestures (see the README).
+// the next most recent, and letting go of Alt goes to the one selected, so a
+// quick Alt + Tab flips between the last two. Super + Tab is never touched.
+// The "toggle" and "close" globals are for anything else, such as touchpad
+// gestures (see the README).
 // The logic lives in WorkspaceSwitcherLogic.js.
 Item {
   id: root
@@ -35,7 +35,7 @@ Item {
   property bool queryWanted: false
   property var workspaces: []
   property int selectedIndex: 0
-  // Opened by Super + Tab: letting go of Super goes to the selected workspace.
+  // Opened by Alt + Tab: letting go of Alt goes to the selected workspace.
   property bool cycling: false
   // Tabs pressed while the overview is still opening.
   property int pendingSteps: 0
@@ -54,6 +54,28 @@ Item {
   readonly property int gap: Style.space(22)
   readonly property int labelHeight: Style.space(28)
   readonly property real cardAspect: 16 / 9
+
+  // Setting: wash the backdrop with a whisper of the theme's popup-border
+  // color (the edge on bluetooth/sound flyouts), so the overview feels part
+  // of the theme. Off = plain theme background. Light/dark follows the theme
+  // either way: every color here resolves from the active theme at runtime.
+  property bool accentTint: true
+  readonly property color backdropColor: {
+    var base = Color.background
+    if (!root.accentTint) return Qt.alpha(base, 0.88)
+    var b = Color.popups.border
+    return Qt.rgba(base.r + (b.r - base.r) * 0.15, base.g + (b.g - base.g) * 0.15,
+      base.b + (b.b - base.b) * 0.15, 0.88)
+  }
+
+  // Window previews composite over this bed. Transparent terminals stay
+  // readable in light themes because the bed stays dark there; in dark themes
+  // it is the theme surface itself. Opaque windows cover it fully.
+  readonly property color previewBed: {
+    var bg = Color.menu.background
+    var luminance = 0.299 * bg.r + 0.587 * bg.g + 0.114 * bg.b
+    return luminance > 0.5 ? "#101315" : bg
+  }
 
   function focusedScreen() {
     var monitorName = Hyprland.focusedMonitor ? String(Hyprland.focusedMonitor.name || "") : ""
@@ -78,12 +100,16 @@ Item {
       return
     }
     cycling = false
+    // A query that failed earlier may have left these behind; they would
+    // turn this open into a silent workspace switch instead of the overview.
+    commitPending = false
+    pendingSteps = 0
     open()
   }
 
-  // Super + Tab (step 1) and Super + Shift + Tab (step -1). The first one opens
+  // Alt + Tab (step 1) and Alt + Shift + Tab (step -1). The first one opens
   // the overview with the previous workspace (or, backwards, the least recent)
-  // already selected, so a quick Super + Tab flips between the last two.
+  // already selected, so a quick Alt + Tab flips between the last two.
   function cycle(step) {
     cycling = true
     if (opened) {
@@ -97,7 +123,7 @@ Item {
     }
   }
 
-  // Super was let go: go to the selected workspace. Letting go before the
+  // Alt was let go: go to the selected workspace. Letting go before the
   // overview has drawn still goes there, once it knows the workspaces.
   function commit() {
     if (!cycling) return
@@ -164,6 +190,7 @@ Item {
       state = JSON.parse(String(text || "{}"))
     } catch (error) {
       console.warn("io.github.antoniowav.workspace-switcher: failed to parse hyprctl output:", error)
+      close()
       return
     }
 
@@ -180,7 +207,10 @@ Item {
       var top = toplevelByAddress[address]
       return top ? top.wayland : null
     })
-    if (list.length === 0) return
+    if (list.length === 0) {
+      close()
+      return
+    }
     list = Logic.sortByRecent(list, recent)
 
     var selected = Logic.cycleSelection(Math.max(0, list.findIndex(function(ws) { return ws.focused })),
@@ -329,7 +359,7 @@ Item {
 
     Rectangle {
       anchors.fill: parent
-      color: Qt.alpha(Color.background, 0.88)
+      color: root.backdropColor
     }
 
     // Clicking the backdrop closes the overview.
@@ -488,6 +518,16 @@ Item {
                       elide: Text.ElideRight
                       font.family: Style.font.menuFamily
                       font.pixelSize: Style.font.caption
+                    }
+
+                    // Opaque bed directly under the live preview, so transparent
+                    // windows (terminals with a see-through background) read
+                    // as solid tiles instead of ghosts. Hidden without content,
+                    // where the app-name placeholder shows instead.
+                    Rectangle {
+                      anchors.fill: preview
+                      visible: preview.hasContent
+                      color: root.previewBed
                     }
 
                     ScreencopyView {
