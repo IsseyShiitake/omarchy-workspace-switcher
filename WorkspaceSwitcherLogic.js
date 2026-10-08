@@ -228,6 +228,44 @@ function moveSelection(index, dx, dy, cols, count) {
   return next >= 0 && next < count ? next : index
 }
 
+// Settings from ~/.config/omarchy/workspace-switcher.json. Absent file,
+// missing keys or malformed JSON all fall back to the defaults (everything
+// on); "off" values revert that behavior to how the base plugin ships.
+function parseSettings(text) {
+  var out = { gestureOpen: true, accentTint: true, numericOrder: true }
+  if (!text) return out
+  try {
+    var data = JSON.parse(String(text))
+    if (data && typeof data.gestureOpen === "boolean") out.gestureOpen = data.gestureOpen
+    if (data && typeof data.accentTint === "boolean") out.accentTint = data.accentTint
+    if (data && typeof data.numericOrder === "boolean") out.numericOrder = data.numericOrder
+  } catch (error) {
+    // malformed: keep defaults
+  }
+  return out
+}
+
+// One line of the swipe stream the gesture lines in hyprland.lua write to
+// /tmp/omarchy-workspace-switcher-swipe: "begin up", "update up -123.45",
+// "end down". `dy` is the finger travel accumulated by the Lua side (screen
+// coordinates: swiping up makes it negative), present on updates only.
+function parseSwipe(line) {
+  var parts = String(line || "").trim().split(/\s+/)
+  if (parts.length < 2) return null
+  if (parts[0] !== "begin" && parts[0] !== "update" && parts[0] !== "end") return null
+  var event = { phase: parts[0], dir: parts[1] === "down" ? "down" : "up", dy: 0 }
+  if (parts[0] === "update") {
+    var dy = parseFloat(parts[2])
+    if (isNaN(dy)) return null
+    event.dy = dy
+  }
+  return event
+}
+
+function clamp01(value) {
+  return value < 0 ? 0 : (value > 1 ? 1 : value)
+}
+
 // The card index after stepping through the cards in order, as Super + Tab
 // does, wrapping around at either end.
 function cycleSelection(index, step, count) {
@@ -275,6 +313,9 @@ if (typeof module !== "undefined") {
     cycleSelection: cycleSelection,
     commitTarget: commitTarget,
     highlightIndex: highlightIndex,
-    pointerMoved: pointerMoved
+    pointerMoved: pointerMoved,
+    parseSettings: parseSettings,
+    parseSwipe: parseSwipe,
+    clamp01: clamp01
   }
 }

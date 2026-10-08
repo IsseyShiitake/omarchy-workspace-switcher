@@ -66,6 +66,46 @@ Item {
   // before — the highlight just starts there; further Tabs walk the cards
   // as displayed. Off = cards follow order of visit, current first.
   property bool numericOrder: true
+
+  // Setting: a three-finger swipe up opens the overview following the
+  // fingers (the same begin/update/end engine the horizontal workspace
+  // swipe uses), and up or down while it is open closes it the same way.
+  // The swipe itself is streamed by lines in hyprland.lua; off = the stream
+  // is ignored and the swipes do nothing (base behavior).
+  property bool gestureOpen: true
+
+  // Settings and swipe input live in files, watched live:
+  //   ~/.config/omarchy/workspace-switcher.json  (the three settings above)
+  //   /tmp/omarchy-workspace-switcher-swipe      (one line per gesture event)
+  readonly property string settingsPath: Quickshell.env("HOME") + "/.config/omarchy/workspace-switcher.json"
+  readonly property string swipePath: "/tmp/omarchy-workspace-switcher-swipe"
+
+  // How far the overview is showing, 0 (hidden) to 1 (fully open). While a
+  // swipe drags it the value follows the fingers directly; otherwise it
+  // animates, so opens and closes glide.
+  property real sheetReveal: 0
+  // True while the fingers (not an animation) are dragging the sheet.
+  property bool swipeFollowing: false
+  // "" | "opening" | "closing" — what an in-progress swipe is doing.
+  property string swipeMode: ""
+  // Finger travel (in the swipe stream's units) that fully reveals the sheet.
+  readonly property real swipeTravel: 320
+  // A swipe that revealed less than this snaps back; more commits.
+  readonly property real swipeCommitRatio: 0.4
+
+  onGestureOpenChanged: {
+    if (!gestureOpen && swipeFollowing) {
+      swipeFollowing = false
+      swipeMode = ""
+      sheetReveal = opened ? 1 : 0
+    }
+  }
+
+  // The sheet glides on its own, but never fights the fingers.
+  Behavior on sheetReveal {
+    enabled: !root.swipeFollowing
+    NumberAnimation { duration: 160; easing.type: Easing.OutCubic }
+  }
   readonly property color backdropColor: {
     var base = Color.background
     if (!root.accentTint) return Qt.alpha(base, 0.88)
@@ -154,6 +194,7 @@ Item {
     pendingSteps = 0
     commitPending = false
     hoveredIndex = -1
+    if (!swipeFollowing) sheetReveal = 0
   }
 
   function pointerOver(index, position) {
@@ -170,6 +211,48 @@ Item {
 
   function pointerLeft(index) {
     if (hoveredIndex === index) hoveredIndex = -1
+  }
+
+  // One line of the swipe stream (see Logic.parseSwipe). The Lua side in
+  // hyprland.lua accumulates the finger deltas and writes each phase here;
+  // this side turns them into the sheet following the fingers and commits
+  // or cancels on release, like the horizontal workspace swipe.
+  function onSwipeLine(line) {
+    if (!gestureOpen) return
+    var event = Logic.parseSwipe(line)
+    if (!event) return
+
+    if (event.phase === "begin") {
+      if (swipeFollowing) return
+      if (opened) {
+        swipeMode = "closing"
+      } else {
+        swipeMode = "opening"
+        cycling = false
+        commitPending = false
+        pendingSteps = 0
+        sheetReveal = 0
+        open()
+      }
+      swipeFollowing = true
+    } else if (event.phase === "update" && swipeFollowing) {
+      if (swipeMode === "opening") {
+        // Up is negative dy in screen coordinates.
+        sheetReveal = Logic.clamp01(-event.dy / swipeTravel)
+      } else {
+        sheetReveal = Logic.clamp01(1 - Math.abs(event.dy) / swipeTravel)
+      }
+    } else if (event.phase === "end" && swipeFollowing) {
+      swipeFollowing = false
+      if (swipeMode === "opening") {
+        if (sheetReveal >= swipeCommitRatio) sheetReveal = 1
+        else close()
+      } else {
+        if (sheetReveal <= swipeCommitRatio) close()
+        else sheetReveal = 1
+      }
+      swipeMode = ""
+    }
   }
 
   function dispatch(lua) {
@@ -235,6 +318,8 @@ Item {
     pointerStart = null
     pointerArmed = false
     opened = true
+    // While a swipe is dragging the sheet, the fingers own the reveal.
+    if (!swipeFollowing) sheetReveal = 1
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
 
@@ -260,7 +345,18 @@ Item {
 
   Component.onCompleted: {
     noteFocusedWorkspace()
+    // The swipe stream file must exist before tail can follow it; the gesture
+    // lines in hyprland.lua (re)create it on every swipe anyway. The retry
+    // starts the tail after the touch has had a moment to land.
+    Quickshell.execDetached(["touch", swipePath])
+    swipeWatchRetry.start()
     applyBindings()
+  }
+
+  Timer {
+    id: swipeWatchRetry
+    interval: 400
+    onTriggered: swipeTail.running = true
   }
 
   Component.onDestruction: {
@@ -294,6 +390,53 @@ Item {
     id: visitTimer
     interval: 200
     onTriggered: root.noteFocusedWorkspace()
+  }
+
+  // The three settings. The parse is a binding on the FileView's text, so it
+  // re-runs whenever the file reloads (FileView's onLoaded only fires on the
+  // first load — it is a property-change handler, not the signal). A missing
+  // file or malformed JSON means the defaults, all on.
+  property var settings: Logic.parseSettings(settingsFile.text())
+  onSettingsChanged: {
+    gestureOpen = settings.gestureOpen
+    accentTint = settings.accentTint
+    numericOrder = settings.numericOrder
+  }
+
+  FileView {
+    id: settingsFile
+    path: root.settingsPath
+    watchChanges: true
+    printErrors: false
+    onFileChanged: reload()
+  }
+
+  // The swipe stream written (appended) by the gesture lines in hyprland.lua,
+  // tailed live: each appended line is one gesture event, in order. The file
+  // is emptied by the plugin after a gesture has been over for a moment —
+  // truncating in place there is what `tail -f` can see, unlike rewrites.
+  Process {
+    id: swipeTail
+    command: ["tail", "-n", "0", "-f", root.swipePath]
+    running: false
+    stdout: SplitParser {
+      onRead: function(line) {
+        root.onSwipeLine(line)
+        root.swipeIdle.restart()
+      }
+    }
+  }
+
+  Timer {
+    id: swipeIdle
+    interval: 3000
+    onTriggered: swipeTruncator.setText("")
+  }
+
+  FileView {
+    id: swipeTruncator
+    path: root.swipePath
+    printErrors: false
   }
 
   Process {
@@ -334,7 +477,7 @@ Item {
   GlobalShortcut {
     appid: "io.github.antoniowav.workspace-switcher"
     name: "commit"
-    description: "Go to the selected workspace if Super + Tab opened the overview"
+    description: "Go to the selected workspace if Alt + Tab opened the overview"
     onPressed: root.commit()
     onReleased: root.commit()
   }
@@ -350,7 +493,7 @@ Item {
 
   PanelWindow {
     id: panel
-    visible: root.opened
+    visible: root.opened || root.swipeFollowing || root.sheetReveal > 0.001
     onVisibleChanged: {
       if (visible) keyCatcher.forceActiveFocus()
     }
@@ -366,6 +509,7 @@ Item {
     Rectangle {
       anchors.fill: parent
       color: root.backdropColor
+      opacity: root.sheetReveal
     }
 
     // Clicking the backdrop closes the overview.
@@ -400,6 +544,8 @@ Item {
       id: area
       anchors.fill: parent
       anchors.margins: Style.space(48)
+      opacity: root.sheetReveal
+      scale: 0.92 + 0.08 * root.sheetReveal
 
       readonly property var fit: Logic.layoutFor(root.workspaces.length, width, height, root.gap, root.labelHeight, root.cardAspect)
 
