@@ -1,6 +1,6 @@
 # Workspace Switcher
 
-Reworked workspace switcher from author antoniowav
+Reworked "omarchy-workspace-switcher" from author antoniowav
 
 Additional implementations:
 - Now activates on a touchpad 3F swipe up on top of other shortcuts
