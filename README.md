@@ -23,10 +23,13 @@ rebound to Super + Tab so Alt + Tab stays free for window cycling.
   The arrow keys and Return work too, and Escape closes it.
 - While the overview is showing it holds a keyboard-shortcuts inhibitor, so
   nothing can change the desktop under it: Super+digit workspace jumps,
-  Super+Ctrl+arrows and the three-finger horizontal workspace swipe are all
-  muted for as long as it is open (the open/close swipes are exempt — they
-  register `disable_inhibit`). Tab, Shift + Tab and letting go of Super keep
-  working: the overview handles them itself.
+  Super+Ctrl+arrows and the three-finger horizontal workspace swipe are muted
+  for as long as it is open. Be aware that the inhibitor is all-or-nothing:
+  **every** Hyprland keybind is skipped for that surface, so volume, brightness
+  and media keys (XF86…) do nothing for the moment the overview is up. The
+  open/close swipes are exempt (they register `disable_inhibit`), and Tab,
+  Shift + Tab, the arrows, Return, Escape and letting go of Super keep working
+  because the overview handles them itself.
 - Each window is labelled with its app's name. Terminals show what they are doing
   instead: a Claude Code session's name (as the top bar shows it), the folder of a
   shell prompt, or the running program's title. Transparent terminals composite
@@ -36,108 +39,80 @@ rebound to Super + Tab so Alt + Tab stays free for window cycling.
 
 ## Install
 
+Two steps: add the plugin, then include its Hyprland wiring (one `dofile`).
+
 ```bash
 omarchy plugin add https://github.com/IsseyShiitake/omarchy-workspace-switcher --enable
 ```
 
-Then add the key and gesture lines below to your Hyprland config and reload:
-that is what wires Super + Tab and the three-finger swipe. The plugin itself
-needs no restart.
+In `~/.config/hypr/hyprland.lua` (or an `input.lua` included from it):
+
+```lua
+-- Workspace switcher wiring: the three-finger up/down gestures, Super+Tab /
+-- Super+Shift+Tab and the Super-release commit. Set OMARCHY_SWITCHER_MOD = "ALT"
+-- before this to put the overview on Alt+Tab and leave Super+Tab to Hyprland.
+local ws_wiring = os.getenv("HOME") .. "/.config/omarchy/plugins/io.github.antoniowav.workspace-switcher/hypr/workspace-switcher.lua"
+local ws_file = io.open(ws_wiring, "r")
+if ws_file then ws_file:close() dofile(ws_wiring) end
+```
+
+Then `hyprctl reload` (or re-login). The wiring ships inside the plugin, so it
+travels with it and your config stays a single include.
+
+**Stock Omarchy already binds `Super + Tab`** (next/previous workspace, in
+`default/hypr/bindings/tiling.lua`) — the include rebinds it, which is the point
+of the switcher. If you would rather keep Omarchy's tiling binds, set
+`OMARCHY_SWITCHER_MOD = "ALT"` before the include: the overview moves to
+Alt + Tab, and you can put window cycling back on Super + Tab.
+
+The plugin itself needs no restart.
 
 ## Keys and touchpad gestures
 
-All input rides one stream: `/tmp/omarchy-workspace-switcher-swipe`, one line
-per event, written by gesture callbacks and Lua-function key binds, which the
-plugin tails live. No runtime key takeover, nothing to restore on unload, and
-nothing that breaks on a config reload. The gestures use the same
-begin/update/end callback engine the horizontal workspace swipe rides
-(Hyprland 0.56's `gesture` keyword), so the overview follows your fingers and
-commits on release; a global dispatch carries no payload, which is why the
-events are streamed through the file instead. Add this to
-`~/.config/hypr/input.lua` (or to `hyprland.lua` on a flat config):
+All input rides one stream: `$XDG_RUNTIME_DIR/omarchy-workspace-switcher-swipe`
+(`/tmp` only if the shell was started without a runtime dir), one line per event,
+written by the wiring file's gesture callbacks and Lua-function key binds and
+tailed live by the plugin. No runtime key takeover, nothing to restore on unload,
+nothing that breaks on a config reload — and because the stream lives in the
+session runtime dir (mode 0700) no other local user or session can inject lines
+into it.
 
-```lua
-local ws_swipe_dy = 0
-local ws_swipe_last = ""
-local ws_stream_bytes = 0
--- Append, never truncate in place (except at the size cap): the plugin tails
--- this file, and a truncate+rewrite of similar length is invisible to
--- `tail -f` — a shrink to zero IS seen and resets it. The plugin empties the
--- file itself once a gesture has been over for a moment; the cap only bounds
--- growth when no plugin is tailing.
-local function ws_swipe_write(line, dedupe)
-    if dedupe == nil then dedupe = true end
-    if dedupe and line == ws_swipe_last then return end
-    ws_swipe_last = line
-    local mode = "a"
-    if ws_stream_bytes > 65536 then mode = "w"; ws_stream_bytes = 0 end
-    local f = io.open("/tmp/omarchy-workspace-switcher-swipe", mode)
-    if f then
-        if f:write(line, "\n") then ws_stream_bytes = ws_stream_bytes + #line + 1 end
-        f:close()
-    end
-end
--- Key presses must each land (hold-Tab cycling repeats the bind), so they
--- bypass the update-dedupe: consecutive identical key lines are distinct
--- presses.
-local function ws_key_write(name)
-    ws_swipe_write("key " .. name, false)
-end
-local function ws_swipe_action(dir)
-    -- NOTE: the release callback's table key is "finish". Hyprland 0.56
-    -- reads start/update/finish; an "end" key is silently ignored, which
-    -- leaves the overview following the fingers with no release event.
-    return {
-        start = function(e)
-            ws_swipe_dy = 0
-            ws_swipe_last = ""
-            ws_swipe_write("begin " .. dir)
-        end,
-        update = function(e)
-            ws_swipe_dy = ws_swipe_dy + e.delta.y
-            ws_swipe_write(string.format("update %s %.2f", dir, ws_swipe_dy))
-        end,
-        finish = function(e)
-            ws_swipe_write("end " .. dir .. ((e and e.cancelled) and " cancelled" or ""))
-        end,
-    }
-end
--- disable_inhibit: the overview holds a keyboard-shortcuts inhibitor while
--- open (it mutes every keybind and gesture for its surface, so the desktop
--- can't change underneath); these two swipes stay exempt so it can close.
-hl.gesture({ fingers = 3, direction = "up",   action = ws_swipe_action("up"),   disable_inhibit = true })
-hl.gesture({ fingers = 3, direction = "down", action = ws_swipe_action("down"), disable_inhibit = true })
--- Super + Tab cycles workspaces (Alt + Tab stays free for window cycling);
--- letting go of Super commits the choice. Transparent: or Super+Tab's own
--- bind shadows the release; non_consuming: apps still see Super; ignore_mods:
--- fires with Shift held.
-hl.bind("SUPER + Tab", function() ws_key_write("next") end,
-    { description = "Switch workspace (hold Super)" })
-hl.bind("SUPER + SHIFT + Tab", function() ws_key_write("previous") end,
-    { description = "Switch workspace backwards (hold Super)" })
-for _, key in ipairs({ "Super_L", "Super_R" }) do
-    hl.bind("SUPER + " .. key, function() ws_key_write("commit") end,
-        { release = true, transparent = true, non_consuming = true, ignore_mods = true })
-end
-ws_swipe_write("init")
-```
+The wiring itself ships in the plugin as
+[`hypr/workspace-switcher.lua`](hypr/workspace-switcher.lua), pulled in by the one
+include in Install:
 
-The plugin doesn't add these for you: Hyprland can't remove a gesture once it
-is added, and you may already use these swipes or Super + Tab for something
-else. With the plugin's `gestureOpen` setting off (or the plugin disabled) the
+| wiring | what it does |
+|---|---|
+| three-finger up / down | open the overview following the fingers; up **or** down while open closes it. Registered `disable_inhibit` so the close-swipe survives the overview's own shortcuts inhibitor. |
+| `Super + Tab` / `Super + Shift + Tab` | cycle forward / back while held; the first press opens the overview on the previous workspace |
+| release of `Super_L` / `Super_R` | commit the highlighted workspace (transparent, non-consuming: apps still see Super) |
+
+Two knobs, set before the include: `_G.OMARCHY_SWITCHER_MOD = "ALT"` moves the
+keys to Alt + Tab and leaves Super + Tab to Hyprland;
+`_G.OMARCHY_SWITCHER_HORIZONTAL_SWIPE = true` also registers the three-finger
+horizontal workspace swipe (leave it off if your config already has one, or you
+get a duplicate gesture).
+
+The rationale for a file stream instead of compositor-side key handling: the
+gestures use the same begin/update/finish callback engine the horizontal
+workspace swipe rides (Hyprland 0.56's `gesture` keyword), but a global dispatch
+carries no payload — so the callbacks stream each event to the plugin through the
+file. It also keeps the shell's GlobalShortcut routing out of the path: on
+quickshell 0.2.1 those silently drop per-instance subsets. Five
+`GlobalShortcut`s (`toggle`, `next`, `previous`, `commit`, `close`) are still
+registered as unbound secondary triggers for anything that wants them.
+
+The plugin does not add the wiring for you: Hyprland cannot remove a gesture once
+it is added, and you may already use these swipes or Super + Tab for something
+else. With the plugin's `gestureOpen` setting off, or the plugin disabled, the
 gesture lines are written and ignored; the key lines are ignored too, and
 Super + Tab does whatever your own config binds there.
 
-Five `GlobalShortcut`s (`toggle`, `next`, `previous`, `commit`, `close`) are
-also registered as secondary triggers for anything that wants them — beware
-that on quickshell 0.2.1 their delivery is unreliable (per-instance subsets
-silently never fire), which is why the stream above is the primary path.
-
 ## How it changes your key bindings
 
-It doesn't, at runtime: the keys it uses are the Lua binds you added above,
-in your own config. Nothing is taken over, and disabling the plugin (or
-removing it) needs no cleanup — the stream lines are simply ignored.
+It doesn't, at runtime: the keys it uses are the Lua binds the include
+registers, in your own config. Nothing is taken over, and disabling the plugin
+(or removing it) needs no cleanup — the stream lines are simply ignored.
 
 | Keys | With the binds + plugin |
 |---|---|
@@ -145,12 +120,16 @@ removing it) needs no cleanup — the stream lines are simply ignored.
 | Super + Shift + Tab | Cycle backwards |
 | Letting go of Super | Switch to the selected workspace (only after Super + Tab) |
 
-Letting go of Super is passed on to apps as usual. Alt + Tab is never used:
-whatever you have bound there (window cycling, Omarchy's next workspace, …)
-works exactly as before, with the plugin enabled or disabled.
+Letting go of Super is passed on to apps as usual. Alt + Tab is never used in
+the default arrangement: whatever you have bound there (window cycling, …) works
+exactly as before, with the plugin enabled or disabled. With
+`OMARCHY_SWITCHER_MOD = "ALT"` it is the other way round — the overview takes
+Alt + Tab and Super + Tab is left alone.
 
-Other plugins that bind Super + Tab in their config conflict with the lines
-above: keep only one.
+Anything else that binds the same keys conflicts with the include: Omarchy's own
+stock `Super + Tab` bind, and other plugins that bind it in their config. Keep
+only one — the include is loaded last in your config, so it wins, but if you want
+Omarchy's tiling binds back use the `ALT` arrangement above.
 
 ## Configuration
 
@@ -179,7 +158,7 @@ Editing the file applies live, without a shell restart:
   (1, 2, 3, …) instead of order of visit. A tap still flips to the workspace
   you were on before — the highlight just starts there; further Tabs walk the
   cards as displayed. `false` reverts to visit-ordered cards, current first.
-- `previewWaitMs` (default `0`, clamped to 0–1000; this install runs `200`) — how long the sheet may
+- `previewWaitMs` (default `0`, clamped to 0–1000; `200` is a good value if you would rather the sheet appear already populated) — how long the sheet may
   wait for its previews before revealing itself. `0` reveals at once and the
   previews fill in as they land: the sheet is up ~40 ms after the key press,
   the first preview is there ~0.1 s later and the last within ~0.2 s, so the
@@ -228,13 +207,41 @@ The real fix belongs upstream in quickshell: pass
 `QQuickWindow::TextureHasAlphaChannel` when the imported dmabuf format has an
 alpha channel (the same thing its Vulkan path already does for XRGB formats).
 
+## Tested configuration and known gaps
+
+Developed and verified against: **Omarchy 4 shell**, **quickshell 0.2.1** (Fedora
+build `0.2.1^git20260209.dacfa9d`, Qt 6.11.2), **Hyprland 0.56.2**, a single
+2880×1800 display at scale 2, Fedora 44.
+
+Verified by testing: both open paths (stream key bind, three-finger swipe) and
+every close path (Escape, backdrop click, Super release, swipe), the shortcuts
+inhibitor and its swipe exemptions, live settings reload, the capture pump and
+`previewWaitMs`, and the alpha-correct previews (pixel-compared against the shm
+capture transport).
+
+Not verified by testing — reasoned from source, or untested hardware:
+
+- **Hold-`Super` Tab-repeat through the overview's exclusive-keyboard layer.** Discrete synthetic presses work; a real key repeat has not been measured. If repeats don't reach the layer on some setup, hold-cycling degrades to one step per press (the stream binds used while closed are unaffected).
+- **Super-release commit** depends on Qt mapping the XKB Super keysym to `Qt.Key_Meta`; `Meta`, `Super_L` and `Super_R` are all handled, but only this Qt build was exercised.
+- **Other trackpads** — `swipeTravel` (320 px) and the 30 % commit threshold were tuned on this one. Nothing breaks elsewhere; the feel differs.
+- **Other versions** — quickshell ≠ 0.2.1, Hyprland ≠ 0.56.2 and non-Omarchy shells are untested. The plugin imports `qs.Commons`/`qs.Ui`, so it is Omarchy-only by design; the wiring file depends on 0.56's `gesture` keyword and its `finish` release callback.
+- **Multi-monitor** — the overview targets the focused monitor and the geometry maths is per-monitor, but only a single-monitor setup was exercised. Special (negative-id) workspaces and unmapped/hidden clients are excluded by design, and a client whose monitor is missing from `hyprctl` falls back to a 1920×1080 fraction grid.
+- **Plugin code changes need a shell restart** — Omarchy's plugin watcher exists, but it did not reload this plugin for a file edit during testing.
+- **`omarchy plugin update` overwrites a modified checkout** — this fork lives as a git checkout under `~/.config/omarchy/plugins/`, so keep changes committed and pushed rather than edited in place.
+
+The alpha note under Requirements is specific to quickshell 0.2.1: if a future
+version passes the texture's alpha flag itself, this plugin's workaround becomes
+a harmless no-op rather than a problem.
+
 ## Remove
 
 ```bash
 omarchy plugin remove io.github.antoniowav.workspace-switcher
 ```
 
-If you added the key and gesture lines, remove them from `~/.config/hypr/input.lua` too.
+Also remove the include block from `~/.config/hypr/hyprland.lua` (or
+`input.lua`). Nothing else to undo: the stream file in `$XDG_RUNTIME_DIR` is
+deleted with the session and would simply be ignored.
 
 ## Development
 

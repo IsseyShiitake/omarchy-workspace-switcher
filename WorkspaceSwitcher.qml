@@ -11,7 +11,8 @@ import "WorkspaceSwitcherLogic.js" as Logic
 // as a card, in order of visit (current first), with its windows drawn at
 // their real positions as previews.
 //
-// Input rides one stream: /tmp/omarchy-workspace-switcher-swipe, one line per
+// Input rides one stream: $XDG_RUNTIME_DIR/omarchy-workspace-switcher-swipe
+// (/tmp when the shell has no runtime dir), one line per
 // event, written by gesture callbacks and Lua-function key binds in
 // hyprland.lua (gesture phases as "begin/update/end" lines, keys as
 // "key next/previous/commit/toggle/close"). The plugin tails the file — no
@@ -90,9 +91,13 @@ Item {
 
   // Settings and input live in files, watched live:
   //   ~/.config/omarchy/workspace-switcher.json  (the settings above)
-  //   /tmp/omarchy-workspace-switcher-swipe      (one line per input event)
+  //   $XDG_RUNTIME_DIR/omarchy-workspace-switcher-swipe   (one line per input event)
   readonly property string settingsPath: Quickshell.env("HOME") + "/.config/omarchy/workspace-switcher.json"
-  readonly property string swipePath: "/tmp/omarchy-workspace-switcher-swipe"
+  // The input stream lives in the session runtime dir when there is one (it is
+  // 0700 and per-session, so no other local user or session can inject lines);
+  // /tmp stays as the fallback for a shell started without XDG_RUNTIME_DIR.
+  readonly property string swipeDir: Quickshell.env("XDG_RUNTIME_DIR") !== "" ? Quickshell.env("XDG_RUNTIME_DIR") : "/tmp"
+  readonly property string swipePath: swipeDir + "/omarchy-workspace-switcher-swipe"
 
   // Preview captures are handed out by the pump below: captureCount is how
   // many windows this open has, captureArmed how many of them may capture yet.
