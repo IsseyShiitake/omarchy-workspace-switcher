@@ -121,7 +121,10 @@ function buildWorkspaces(state, names, waylandFor) {
       w: c.size[0] / ws.monitor.w,
       h: c.size[1] / ws.monitor.h,
       floating: !!c.floating,
-      wayland: waylandFor ? (waylandFor(address) || null) : null
+      wayland: waylandFor ? (waylandFor(address) || null) : null,
+      // Filled in by assignCaptureOrder when the overview opens; -1 = not
+      // scheduled for a capture yet.
+      captureOrder: -1
     })
   })
 
@@ -169,43 +172,32 @@ function initialSelection(ranked, display, pendingSteps) {
   return Math.max(0, (display || []).indexOf(target))
 }
 
-// The Lua run with `hyprctl eval` when the plugin loads, and again after every
-// config reload (which drops runtime bindings). Alt + Tab cycles workspaces so
-// Super + Tab stays free for this machine's window cycling. Letting go of Alt
-// is a release binding on each Alt key that must see every release: transparent,
-// or Hyprland shadows it once Alt + Tab has fired, so it never fires;
-// non_consuming, so apps still see Alt; ignore_mods, so it fires with Shift
-// held too. It has no description, so it stays out of the keybindings list.
-function bindingScript(appId, owner) {
-  function global(name) { return 'hl.dsp.global("' + appId + ':' + name + '")' }
-  return [
-    'hl.unbind("ALT + TAB")',
-    'hl.unbind("ALT + SHIFT + TAB")',
-    'hl.unbind("ALT + Alt_L")',
-    'hl.unbind("ALT + Alt_R")',
-    'hl.bind("ALT + TAB", ' + global("next") + ', { description = "Switch workspace (hold Alt)" })',
-    'hl.bind("ALT + SHIFT + TAB", ' + global("previous") + ', { description = "Switch workspace backwards (hold Alt)" })',
-    'for _, key in ipairs({ "Alt_L", "Alt_R" }) do hl.bind("ALT + " .. key, ' + global("commit")
-      + ', { release = true, transparent = true, non_consuming = true, ignore_mods = true }) end',
-    '_G.workspaceSwitcherBindingOwner = "' + owner + '"'
-  ].join("; ")
+// Numbers the windows for the staggered capture pump: the focused workspace's
+// windows first (they are what the user is looking at), then the other cards
+// in display order. Every window gets exactly one slot; the return value is
+// how many captures the pump has to issue.
+function assignCaptureOrder(cards) {
+  var order = 0
+  var focusedFirst = (cards || []).slice().sort(function(a, b) {
+    return (b && b.focused ? 1 : 0) - (a && a.focused ? 1 : 0)
+  })
+  for (var i = 0; i < focusedFirst.length; ++i) {
+    var windows = focusedFirst[i] && focusedFirst[i].windows ? focusedFirst[i].windows : []
+    for (var j = 0; j < windows.length; ++j) windows[j].captureOrder = order++
+  }
+  return order
 }
 
-// The Lua run when the plugin unloads: releases the Alt bindings it took,
-// unless a newer instance has bound them since. Super + Tab is never touched,
-// so this machine's window cycling survives enable and disable alike.
-// (Upgrading from a version that took Super + Tab needs one `hyprctl reload`
-// to clear the old runtime binds from the compositor.)
-function restoreScript(owner) {
-  return [
-    'if _G.workspaceSwitcherBindingOwner == "' + owner + '" then',
-    '_G.workspaceSwitcherBindingOwner = nil',
-    'hl.unbind("ALT + TAB")',
-    'hl.unbind("ALT + SHIFT + TAB")',
-    'hl.unbind("ALT + Alt_L")',
-    'hl.unbind("ALT + Alt_R")',
-    'end'
-  ].join(" ")
+// How many windows can actually be captured: a window whose toplevel the shell
+// cannot resolve never reports preview content, so the preview wait must count
+// only the rest or it would always run out its full timeout.
+function countCaptureTargets(cards) {
+  var count = 0
+  for (var i = 0; i < (cards || []).length; ++i) {
+    var windows = cards[i] && cards[i].windows ? cards[i].windows : []
+    for (var j = 0; j < windows.length; ++j) if (windows[j].wayland) count += 1
+  }
+  return count
 }
 
 // Largest card width that fits n cards in the area, trying every column count.
@@ -231,34 +223,50 @@ function moveSelection(index, dx, dy, cols, count) {
 // Settings from ~/.config/omarchy/workspace-switcher.json. Absent file,
 // missing keys or malformed JSON all fall back to the defaults (everything
 // on); "off" values revert that behavior to how the base plugin ships.
+// captureStaggerMs is how long the capture pump waits between two previews;
+// it is clamped to a sane range so a typo cannot stall the previews forever.
 function parseSettings(text) {
-  var out = { gestureOpen: true, accentTint: true, numericOrder: true }
+  var out = { gestureOpen: true, accentTint: true, numericOrder: true, captureStaggerMs: 8, previewWaitMs: 0 }
   if (!text) return out
   try {
     var data = JSON.parse(String(text))
     if (data && typeof data.gestureOpen === "boolean") out.gestureOpen = data.gestureOpen
     if (data && typeof data.accentTint === "boolean") out.accentTint = data.accentTint
     if (data && typeof data.numericOrder === "boolean") out.numericOrder = data.numericOrder
+    if (data && typeof data.captureStaggerMs === "number" && isFinite(data.captureStaggerMs))
+      out.captureStaggerMs = Math.min(500, Math.max(0, Math.round(data.captureStaggerMs)))
+    if (data && typeof data.previewWaitMs === "number" && isFinite(data.previewWaitMs))
+      out.previewWaitMs = Math.min(1000, Math.max(0, Math.round(data.previewWaitMs)))
   } catch (error) {
     // malformed: keep defaults
   }
   return out
 }
 
-// One line of the swipe stream the gesture lines in hyprland.lua write to
-// /tmp/omarchy-workspace-switcher-swipe: "begin up", "update up -123.45",
-// "end down". `dy` is the finger travel accumulated by the Lua side (screen
-// coordinates: swiping up makes it negative), present on updates only.
+// One line of the input stream the Lua side in hyprland.lua writes to
+// /tmp/omarchy-workspace-switcher-swipe. Two kinds:
+//   "begin up" / "update up -123.45" / "end down [cancelled]" — gesture
+//     phases; `dy` is the finger travel accumulated by the Lua side (screen
+//     coordinates: swiping up makes it negative), present on updates only;
+//     "cancelled" marks a gesture the compositor aborted, which reverts
+//     instead of committing.
+//   "key next" — a key press from the Lua-function binds (next, previous,
+//     commit, toggle, close).
 function parseSwipe(line) {
   var parts = String(line || "").trim().split(/\s+/)
   if (parts.length < 2) return null
+  if (parts[0] === "key") {
+    if (["next", "previous", "commit", "toggle", "close"].indexOf(parts[1]) === -1) return null
+    return { phase: "key", name: parts[1] }
+  }
   if (parts[0] !== "begin" && parts[0] !== "update" && parts[0] !== "end") return null
-  var event = { phase: parts[0], dir: parts[1] === "down" ? "down" : "up", dy: 0 }
+  var event = { phase: parts[0], dir: parts[1] === "down" ? "down" : "up", dy: 0, cancelled: false }
   if (parts[0] === "update") {
     var dy = parseFloat(parts[2])
     if (isNaN(dy)) return null
     event.dy = dy
   }
+  if (parts[0] === "end" && parts[2] === "cancelled") event.cancelled = true
   return event
 }
 
@@ -303,10 +311,10 @@ if (typeof module !== "undefined") {
     windowLabel: windowLabel,
     buildWorkspaces: buildWorkspaces,
     touchRecent: touchRecent,
-    bindingScript: bindingScript,
-    restoreScript: restoreScript,
     sortByRecent: sortByRecent,
     displayOrder: displayOrder,
+    assignCaptureOrder: assignCaptureOrder,
+    countCaptureTargets: countCaptureTargets,
     initialSelection: initialSelection,
     layoutFor: layoutFor,
     moveSelection: moveSelection,

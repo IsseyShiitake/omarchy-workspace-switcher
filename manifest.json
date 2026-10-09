@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "io.github.antoniowav.workspace-switcher",
   "name": "Workspace Switcher",
-  "version": "1.2.0",
+  "version": "1.4.3",
   "author": "antoniowav",
   "license": "MIT",
-  "description": "Alt + Tab flips to your previous workspace; hold Alt for the overview with live previews, swipe up with three fingers to open it following your fingers.",
+  "description": "Super + Tab flips to your previous workspace; hold Super for the overview with live previews, swipe up with three fingers to open it following your fingers.",
   "keepLoaded": true,
   "kinds": ["service"],
   "entryPoints": {
