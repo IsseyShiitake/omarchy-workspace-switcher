@@ -125,7 +125,9 @@ Item {
   property string swipeMode: ""
   // Finger travel (in the swipe stream's units) that fully reveals the sheet.
   readonly property real swipeTravel: 320
-  // A swipe that revealed less than this snaps back; more commits (30%).
+  // Finger travel past this fraction of swipeTravel commits, in both
+  // directions: opening needs 30% of the travel, and so does closing (the
+  // reveal left at release is then 1 - 0.3 = 0.7). A shorter drag snaps back.
   readonly property real swipeCommitRatio: 0.3
 
   onGestureOpenChanged: {
@@ -321,7 +323,10 @@ Item {
         if (sheetReveal >= swipeCommitRatio) sheetReveal = 1
         else close()
       } else if (mode === "closing") {
-        if (sheetReveal <= swipeCommitRatio) close()
+        // Symmetric with opening in finger travel, not in remaining reveal:
+        // dragging 30% of the way closes, less snaps back open. (Comparing
+        // the reveal directly against the ratio would demand a 70% drag.)
+        if (sheetReveal <= 1 - swipeCommitRatio) close()
         else sheetReveal = 1
       } else {
         sheetReveal = opened ? 1 : 0

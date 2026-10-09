@@ -16,6 +16,7 @@ the table are tagged.
 | 1.2.0 | tag `v1.2.0` | 2026-10-08 | finger-following 3F swipe, live settings, file-stream input |
 | 1.3.0 – 1.4.3 | tag `v1.4.3` | 2026-10-09 | all input on one stream, overview muting, alpha-correct previews |
 | 1.4.4 | tag `v1.4.4` | 2026-10-09 | wiring ships with the plugin, stream moves to `$XDG_RUNTIME_DIR` |
+| 1.4.5 | tag `v1.4.5` | 2026-10-09 | closing swipe made symmetric: 30 % of the travel, like opening |
 
 ## Implementations (new on top of upstream)
 

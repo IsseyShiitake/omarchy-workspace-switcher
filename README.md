@@ -36,8 +36,9 @@ rebound to Super + Tab so Alt + Tab stays free for window cycling.
 - **Swipe up with three fingers** to open the overview following your fingers
   (the same engine the horizontal workspace swipe uses); release past 30% of
   the travel to open, below to snap back. While it is open, a three-finger
-  swipe up **or** down closes it the same way; swiping down while it is
-  closed does nothing.
+  swipe up **or** down past 30% of the travel in the other direction closes it
+  (a shorter drag snaps back open); swiping down while it is closed does
+  nothing.
 - Click a window to focus it, or click empty space in a card to go to that workspace.
   The arrow keys and Return work too, and Escape closes it.
 - While the overview is showing it holds a keyboard-shortcuts inhibitor, so
