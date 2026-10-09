@@ -131,11 +131,37 @@ stock `Super + Tab` bind, and other plugins that bind it in their config. Keep
 only one — the include is loaded last in your config, so it wins, but if you want
 Omarchy's tiling binds back use the `ALT` arrangement above.
 
+## What you can switch on or off
+
+Nothing here is imposed: the plugin binds no keys by itself, and every knob is
+independent of the others.
+
+| what | how | default |
+|---|---|---|
+| **The key arrangement** (Super + Tab vs Alt + Tab) | set `OMARCHY_SWITCHER_MOD` before the wiring include — `"ALT"` moves the overview to Alt + Tab and leaves `Super + Tab` to Hyprland, `"SUPER"` is the other way round | `"SUPER"` |
+| **Three-finger horizontal workspace swipe** | `OMARCHY_SWITCHER_HORIZONTAL_SWIPE = true` before the include | off, so it never duplicates one you already have |
+| **Three-finger up/down gestures** | the `gestureOpen` setting (`false`: the swipes are ignored; the keys and globals still work) | `true` |
+| **Backdrop tint** | `accentTint` | `true` |
+| **Card order** | `numericOrder` (`false`: order of visit, current first) | `true` (1, 2, 3 …) |
+| **Preview capture spacing** | `captureStaggerMs` (`0` = every preview at once) | `8` ms |
+| **Whether the sheet waits for its previews** | `previewWaitMs` (`200` ≈ appear already populated) | `0` (reveal at once, previews land within ~0.1–0.2 s) |
+| **The whole plugin** | `omarchy plugin disable io.github.antoniowav.workspace-switcher` | enabled |
+| **Just the wiring** | comment out the include in your config | included |
+
+Not switchable: while the overview is up it holds a keyboard-shortcuts inhibitor,
+which mutes **every** Hyprland keybind — volume, brightness and media keys
+included — for as long as it is showing. That is what stops the desktop changing
+underneath it. Tab, Shift + Tab, the arrows, Return, Escape and releasing the
+modifier still work, because the overview handles them itself (see the bullet
+list above).
+
 ## Configuration
 
-Five settings in `~/.config/omarchy/workspace-switcher.json` (create the file
-as needed; a missing file, missing keys or malformed JSON all mean "on").
-Editing the file applies live, without a shell restart:
+Five settings in `~/.config/omarchy/workspace-switcher.json`, on top of the
+wiring knobs in the section above. A missing file, a missing key or malformed
+JSON all mean the defaults shown below (booleans on, `captureStaggerMs` 8,
+`previewWaitMs` 0). Editing the file applies live, without a shell restart, and
+the plugin never writes it:
 
 ```json
 {
@@ -179,10 +205,11 @@ number order. The order starts fresh when the shell restarts.
 
 ## Requirements
 
-Omarchy 4 (Quattro) with its Quickshell shell and Hyprland 0.56 or later. No other
-dependencies. The plugin runs `hyprctl` to read your workspaces and windows, to switch
-workspaces, and to set the key bindings above. It needs no network access and no
-privileges.
+Omarchy 4 (Quattro) with its Quickshell shell and Hyprland 0.56 or later. No
+other dependencies. The plugin runs `hyprctl` to read your workspaces and windows
+and to switch workspaces; the keys and gestures come from the wiring file you
+include in your own config (see Install), never from the plugin. It needs no
+network access and no privileges.
 
 **Known quickshell 0.2.1 issue (worked around here):** on the dmabuf screencopy
 path the texture wrapper is format-blind (`QSGOpenGLTexture::fromNative` without
@@ -209,9 +236,9 @@ alpha channel (the same thing its Vulkan path already does for XRGB formats).
 
 ## Tested configuration and known gaps
 
-Developed and verified against: **Omarchy 4 shell**, **quickshell 0.2.1** (Fedora
-build `0.2.1^git20260209.dacfa9d`, Qt 6.11.2), **Hyprland 0.56.2**, a single
-2880×1800 display at scale 2, Fedora 44.
+Developed and verified against: **Omarchy 4 shell**, **quickshell 0.2.1**
+(Fedora build `0.2.1^git20260209.dacfa9d`, Qt 6.11.2), **Hyprland 0.56.2**, a
+single 2880×1800 display at scale 2, Fedora 44.
 
 Verified by testing: both open paths (stream key bind, three-finger swipe) and
 every close path (Escape, backdrop click, Super release, swipe), the shortcuts
@@ -221,13 +248,27 @@ capture transport).
 
 Not verified by testing — reasoned from source, or untested hardware:
 
-- **Hold-`Super` Tab-repeat through the overview's exclusive-keyboard layer.** Discrete synthetic presses work; a real key repeat has not been measured. If repeats don't reach the layer on some setup, hold-cycling degrades to one step per press (the stream binds used while closed are unaffected).
-- **Super-release commit** depends on Qt mapping the XKB Super keysym to `Qt.Key_Meta`; `Meta`, `Super_L` and `Super_R` are all handled, but only this Qt build was exercised.
-- **Other trackpads** — `swipeTravel` (320 px) and the 30 % commit threshold were tuned on this one. Nothing breaks elsewhere; the feel differs.
-- **Other versions** — quickshell ≠ 0.2.1, Hyprland ≠ 0.56.2 and non-Omarchy shells are untested. The plugin imports `qs.Commons`/`qs.Ui`, so it is Omarchy-only by design; the wiring file depends on 0.56's `gesture` keyword and its `finish` release callback.
-- **Multi-monitor** — the overview targets the focused monitor and the geometry maths is per-monitor, but only a single-monitor setup was exercised. Special (negative-id) workspaces and unmapped/hidden clients are excluded by design, and a client whose monitor is missing from `hyprctl` falls back to a 1920×1080 fraction grid.
-- **Plugin code changes need a shell restart** — Omarchy's plugin watcher exists, but it did not reload this plugin for a file edit during testing.
-- **`omarchy plugin update` overwrites a modified checkout** — this fork lives as a git checkout under `~/.config/omarchy/plugins/`, so keep changes committed and pushed rather than edited in place.
+- **Hold-`Super` Tab-repeat through the overview's exclusive-keyboard layer.**
+  Discrete synthetic presses work; a real key repeat has not been measured. If
+  repeats don't reach the layer on some setup, hold-cycling degrades to one step
+  per press (the stream binds used while closed are unaffected). - **Super-
+  release commit** depends on Qt mapping the XKB Super keysym to `Qt.Key_Meta`;
+  `Meta`, `Super_L` and `Super_R` are all handled, but only this Qt build was
+  exercised. - **Other trackpads** — `swipeTravel` (320 px) and the 30 % commit
+  threshold were tuned on this one. Nothing breaks elsewhere; the feel differs.
+  - **Other versions** — quickshell ≠ 0.2.1, Hyprland ≠ 0.56.2 and non-Omarchy
+  shells are untested. The plugin imports `qs.Commons`/`qs.Ui`, so it is
+  Omarchy-only by design; the wiring file depends on 0.56's `gesture` keyword
+  and its `finish` release callback. - **Multi-monitor** — the overview targets
+  the focused monitor and the geometry maths is per-monitor, but only a single-
+  monitor setup was exercised. Special (negative-id) workspaces and
+  unmapped/hidden clients are excluded by design, and a client whose monitor is
+  missing from `hyprctl` falls back to a 1920×1080 fraction grid. - **Plugin
+  code changes need a shell restart** — Omarchy's plugin watcher exists, but it
+  did not reload this plugin for a file edit during testing. - **`omarchy plugin
+  update` overwrites a modified checkout** — this fork lives as a git checkout
+  under `~/.config/omarchy/plugins/`, so keep changes committed and pushed
+  rather than edited in place.
 
 The alpha note under Requirements is specific to quickshell 0.2.1: if a future
 version passes the texture's alpha flag itself, this plugin's workaround becomes
@@ -242,6 +283,11 @@ omarchy plugin remove io.github.antoniowav.workspace-switcher
 Also remove the include block from `~/.config/hypr/hyprland.lua` (or
 `input.lua`). Nothing else to undo: the stream file in `$XDG_RUNTIME_DIR` is
 deleted with the session and would simply be ignored.
+
+## Changes
+
+Every implementation and every inherited bugfix this fork carries is listed in
+[CHANGELOG.md](CHANGELOG.md), with the version each landed in.
 
 ## Development
 
