@@ -1,5 +1,24 @@
 # Workspace Switcher
 
+Reworked workspace switcher from author antoniowav
+
+Additional implementations:
+- Now activates on a touchpad 3F swipe up on top of other shortcuts
+- Window order now 1, 2, 3, 4 etc. instead of current workspace first
+- Bound to super + tab/super + shift + tab instead of alt - made sense since the workspaces manager key is already super
+- Applied current theme tint to overview background
+- Live setting file: running shell picks up files edit instantly with no need to restart it
+- etc.
+
+Bugfixes:
+- Changing workspaces with swipes & keyboard shortcuts while in overview - disabled
+- Windows with transparent/blurred background were appearing as 0 blur 0 opacity in overview - fixed
+- Silent workspace teleport - fixed
+- Wrong app names & terminal labels - fixed
+- etc.
+
+(find all in CHANGELOG.md)
+
 Super + Tab for Omarchy workspaces.
 
 Fork of [antoniowav/omarchy-workspace-switcher](https://github.com/antoniowav/omarchy-workspace-switcher),
