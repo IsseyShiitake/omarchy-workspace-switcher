@@ -76,14 +76,18 @@ local ws_file = io.open(ws_wiring, "r")
 if ws_file then ws_file:close() dofile(ws_wiring) end
 ```
 
-Then `hyprctl reload` (or re-login). The wiring ships inside the plugin, so it
+Then log out and back in. Not `hyprctl reload`: on Hyprland 0.56 the reload does
+not run the Lua config again, so the binds and gestures the include registers
+only appear at session start — a reload can leave them missing until the next
+login. A fresh login loads everything. The wiring ships inside the plugin, so it
 travels with it and your config stays a single include.
 
 **Stock Omarchy already binds `Super + Tab`** (next/previous workspace, in
-`default/hypr/bindings/tiling.lua`) — the include rebinds it, which is the point
-of the switcher. If you would rather keep Omarchy's tiling binds, set
-`OMARCHY_SWITCHER_MOD = "ALT"` before the include: the overview moves to
-Alt + Tab, and you can put window cycling back on Super + Tab.
+`default/hypr/bindings/tiling.lua`) — the include unbinds that stock bind before
+installing its own, which is the point of the switcher. If you would rather keep
+Omarchy's tiling binds, set `OMARCHY_SWITCHER_MOD = "ALT"` before the include:
+the overview moves to Alt + Tab, and you can put window cycling back on
+Super + Tab.
 
 The plugin itself needs no restart.
 
@@ -108,7 +112,9 @@ include in Install:
 | release of `Super_L` / `Super_R` | commit the highlighted workspace (transparent, non-consuming: apps still see Super) |
 
 Two knobs, set before the include: `_G.OMARCHY_SWITCHER_MOD = "ALT"` moves the
-keys to Alt + Tab and leaves Super + Tab to Hyprland;
+keys to Alt + Tab, and the include then unbinds Omarchy's stock `Alt + Tab`
+(window cycling) to install them — take that swap only if you mean it; it leaves
+`Super + Tab` to Hyprland's own next/previous workspace;
 `_G.OMARCHY_SWITCHER_HORIZONTAL_SWIPE = true` also registers the three-finger
 horizontal workspace swipe (leave it off if your config already has one, or you
 get a duplicate gesture).
@@ -140,16 +146,16 @@ registers, in your own config. Nothing is taken over, and disabling the plugin
 | Super + Shift + Tab | Cycle backwards |
 | Letting go of Super | Switch to the selected workspace (only after Super + Tab) |
 
-Letting go of Super is passed on to apps as usual. Alt + Tab is never used in
-the default arrangement: whatever you have bound there (window cycling, …) works
-exactly as before, with the plugin enabled or disabled. With
-`OMARCHY_SWITCHER_MOD = "ALT"` it is the other way round — the overview takes
-Alt + Tab and Super + Tab is left alone.
+Letting go of Super is passed on to apps as usual. Omarchy's own `Alt + Tab`
+window cycling is untouched in the default arrangement and behaves exactly as
+before; what the include replaces is Omarchy's stock `Super + Tab`, which it
+unbinds first. With `OMARCHY_SWITCHER_MOD = "ALT"` it is the other way round —
+the overview takes Alt + Tab, window cycling goes with it, and `Super + Tab` is
+left to Omarchy.
 
-Anything else that binds the same keys conflicts with the include: Omarchy's own
-stock `Super + Tab` bind, and other plugins that bind it in their config. Keep
-only one — the include is loaded last in your config, so it wins, but if you want
-Omarchy's tiling binds back use the `ALT` arrangement above.
+Another plugin or config that binds the same keys still conflicts: Hyprland runs
+every bind registered for a chord rather than letting the last one win, so two
+binds on one key both fire. Keep only one.
 
 ## What you can switch on or off
 
@@ -158,7 +164,7 @@ independent of the others.
 
 | what | how | default |
 |---|---|---|
-| **The key arrangement** (Super + Tab vs Alt + Tab) | set `OMARCHY_SWITCHER_MOD` before the wiring include — `"ALT"` moves the overview to Alt + Tab and leaves `Super + Tab` to Hyprland, `"SUPER"` is the other way round | `"SUPER"` |
+| **The key arrangement** (Super + Tab vs Alt + Tab) | set `OMARCHY_SWITCHER_MOD` before the wiring include — `"ALT"` moves the overview to Alt + Tab (unbinding Omarchy's stock `Alt + Tab` window cycling to install the binds) and leaves `Super + Tab` to Hyprland, `"SUPER"` is the other way round | `"SUPER"` |
 | **Three-finger horizontal workspace swipe** | `OMARCHY_SWITCHER_HORIZONTAL_SWIPE = true` before the include | off, so it never duplicates one you already have |
 | **Three-finger up/down gestures** | the `gestureOpen` setting (`false`: the swipes are ignored; the keys and globals still work) | `true` |
 | **Backdrop tint** | `accentTint` | `true` |
@@ -271,24 +277,26 @@ Not verified by testing — reasoned from source, or untested hardware:
 - **Hold-`Super` Tab-repeat through the overview's exclusive-keyboard layer.**
   Discrete synthetic presses work; a real key repeat has not been measured. If
   repeats don't reach the layer on some setup, hold-cycling degrades to one step
-  per press (the stream binds used while closed are unaffected). - **Super-
-  release commit** depends on Qt mapping the XKB Super keysym to `Qt.Key_Meta`;
-  `Meta`, `Super_L` and `Super_R` are all handled, but only this Qt build was
-  exercised. - **Other trackpads** — `swipeTravel` (320 px) and the 30 % commit
-  threshold were tuned on this one. Nothing breaks elsewhere; the feel differs.
-  - **Other versions** — quickshell ≠ 0.2.1, Hyprland ≠ 0.56.2 and non-Omarchy
+  per press (the stream binds used while closed are unaffected).
+- **Super-release commit** depends on Qt mapping the XKB Super keysym to
+  `Qt.Key_Meta`; `Meta`, `Super_L` and `Super_R` are all handled, but only this
+  Qt build was exercised.
+- **Other trackpads** — `swipeTravel` (320 px) and the 30 % commit threshold
+  were tuned on this one. Nothing breaks elsewhere; the feel differs.
+- **Other versions** — quickshell ≠ 0.2.1, Hyprland ≠ 0.56.2 and non-Omarchy
   shells are untested. The plugin imports `qs.Commons`/`qs.Ui`, so it is
   Omarchy-only by design; the wiring file depends on 0.56's `gesture` keyword
-  and its `finish` release callback. - **Multi-monitor** — the overview targets
-  the focused monitor and the geometry maths is per-monitor, but only a single-
-  monitor setup was exercised. Special (negative-id) workspaces and
-  unmapped/hidden clients are excluded by design, and a client whose monitor is
-  missing from `hyprctl` falls back to a 1920×1080 fraction grid. - **Plugin
-  code changes need a shell restart** — Omarchy's plugin watcher exists, but it
-  did not reload this plugin for a file edit during testing. - **`omarchy plugin
-  update` overwrites a modified checkout** — this fork lives as a git checkout
-  under `~/.config/omarchy/plugins/`, so keep changes committed and pushed
-  rather than edited in place.
+  and its `finish` release callback.
+- **Multi-monitor** — the overview targets the focused monitor and the geometry
+  maths is per-monitor, but only a single-monitor setup was exercised. Special
+  (negative-id) workspaces and unmapped/hidden clients are excluded by design,
+  and a client whose monitor is missing from `hyprctl` falls back to a
+  1920×1080 fraction grid.
+- **Plugin code changes need a shell restart** — Omarchy's plugin watcher
+  exists, but it did not reload this plugin for a file edit during testing.
+- **`omarchy plugin update` overwrites a modified checkout** — this fork lives
+  as a git checkout under `~/.config/omarchy/plugins/`, so keep changes committed
+  and pushed rather than edited in place.
 
 The alpha note under Requirements is specific to quickshell 0.2.1: if a future
 version passes the texture's alpha flag itself, this plugin's workaround becomes

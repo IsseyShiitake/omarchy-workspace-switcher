@@ -28,7 +28,11 @@
 if _G.__omarchy_workspace_switcher_wired then return end
 _G.__omarchy_workspace_switcher_wired = true
 
-local SWITCHER_MOD = _G.OMARCHY_SWITCHER_MOD or "SUPER"
+local SWITCHER_MOD = string.upper(tostring(_G.OMARCHY_SWITCHER_MOD or "SUPER"))
+-- Anything but ALT means the default SUPER arrangement: the binding below uses
+-- this string, so an unrecognised value must at least be a real modifier.
+if SWITCHER_MOD ~= "ALT" then SWITCHER_MOD = "SUPER" end
+
 local HORIZONTAL_SWIPE = _G.OMARCHY_SWITCHER_HORIZONTAL_SWIPE == true
 
 local RUNTIME = os.getenv("XDG_RUNTIME_DIR") or "/tmp"
@@ -103,6 +107,16 @@ hl.gesture({ fingers = 3, direction = "down", action = swipe_action("down"), dis
 -- These ride the same stream the gestures do, which keeps the shell's flaky
 -- GlobalShortcut routing out of the path entirely. Lua-function binds survive
 -- config reloads natively and need no runtime rebind dance.
+--
+-- Unbind first: Hyprland runs every bind registered for a key, so a second one
+-- for the same chord is not shadowed, it fires as well. Omarchy's stock
+-- "Next workspace" bind is Super + Tab (default/hypr/bindings/tiling.lua), the
+-- key this arrangement takes over, so without this a press both jumped a
+-- workspace and opened the overview. In the ALT arrangement the bind removed is
+-- Omarchy's Alt + Tab, which is free to take since the whole point of moving
+-- the overview there is to leave window cycling to Super + Tab.
+hl.unbind(SWITCHER_MOD .. " + TAB")
+hl.unbind(SWITCHER_MOD .. " + SHIFT + TAB")
 hl.bind(SWITCHER_MOD .. " + Tab", function() key_write("next") end,
     { description = "Switch workspace (hold " .. SWITCHER_MOD .. ", release to commit)" })
 hl.bind(SWITCHER_MOD .. " + SHIFT + Tab", function() key_write("previous") end,

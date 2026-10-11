@@ -17,6 +17,7 @@ the table are tagged.
 | 1.3.0 – 1.4.3 | tag `v1.4.3` | 2026-10-09 | all input on one stream, overview muting, alpha-correct previews |
 | 1.4.4 | tag `v1.4.4` | 2026-10-09 | wiring ships with the plugin, stream moves to `$XDG_RUNTIME_DIR` |
 | 1.4.5 | tag `v1.4.5` | 2026-10-09 | closing swipe made symmetric: 30 % of the travel, like opening |
+| 1.4.6 | tag `v1.4.6` | 2026-10-11 | Super + Tab no longer also fires Omarchy's stock Next workspace bind |
 
 ## Implementations (new on top of upstream)
 
@@ -109,3 +110,10 @@ are recorded in the commit messages.
    to the correct shm path, which keeps the cheap dmabuf transport. The
    `QS_DISABLE_DMABUF=1` workaround this replaced is no longer needed and should
    not be set.
+10. **`Super + Tab` fired twice** (1.4.6) — the wiring bound the key without
+    unbinding Omarchy's stock "Next workspace" bind first, and Hyprland fires
+    every bind registered for a chord instead of shadowing the older one, so each
+    press jumped a workspace and opened the overview. The wiring now unbinds the
+    chord it takes over before binding it (in the ALT arrangement, Omarchy's
+    `Alt + Tab`, which is the key that arrangement exists to free). Same defect,
+    found independently, as upstream's 1.4.5.
