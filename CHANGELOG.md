@@ -107,8 +107,9 @@ are recorded in the commit messages.
    `TextureHasAlphaChannel`), so captures were drawn unblended and transparent
    pixels punched holes through the whole panel surface (measured: 52–93 % of the
    affected pixels identical to the bare desktop). The plugin now draws each
-   preview through a QML layer / at `opacity: 0.995`, measured pixel-identical
-   to the correct shm path, which keeps the cheap dmabuf transport. The
+   preview at `opacity: 0.995`, measured pixel-identical
+   to the correct shm path, which keeps the cheap dmabuf transport (routing the
+   capture through a QML layer also works, but was ~45 ms slower to appear). The
    `QS_DISABLE_DMABUF=1` workaround this replaced is no longer needed and should
    not be set.
 10. **`Super + Tab` fired twice** (1.4.6) — the wiring bound the key without

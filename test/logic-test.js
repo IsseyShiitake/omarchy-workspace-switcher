@@ -119,7 +119,7 @@ assert.equal(L.countCaptureTargets([]), 0)
 assert.equal(L.countCaptureTargets(null), 0)
 assert.equal(L.countCaptureTargets([{ id: 1, windows: [{ wayland: null }] }]), 0)
 
-// Settings: the three switches plus the capture stagger, clamped so a typo
+// Settings: the three switches plus the two capture numbers, clamped so a typo
 // cannot stall the previews or hammer the compositor.
 assert.deepEqual(L.parseSettings(""), {
   gestureOpen: true, accentTint: true, numericOrder: true, captureStaggerMs: 8, previewWaitMs: 0,

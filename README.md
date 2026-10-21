@@ -101,7 +101,11 @@ written by the wiring file's gesture callbacks and Lua-function key binds and
 tailed live by the plugin. No runtime key takeover, nothing to restore on unload,
 nothing that breaks on a config reload — and because the stream lives in the
 session runtime dir (mode 0700) no other local user or session can inject lines
-into it.
+into it. The `/tmp` fallback has no such protection: it is a fixed name in a
+world-writable directory, so another local user can pre-create the file (or a
+symlink at that name) and either feed the plugin input or make it truncate a
+file you own. It only applies to a shell started without `XDG_RUNTIME_DIR`,
+which a normal Omarchy session does not do.
 
 The wiring itself ships in the plugin as
 [`hypr/workspace-switcher.lua`](hypr/workspace-switcher.lua), pulled in by the one
@@ -133,14 +137,19 @@ registered as unbound secondary triggers for anything that wants them.
 The plugin does not add the wiring for you: Hyprland cannot remove a gesture once
 it is added, and you may already use these swipes or Super + Tab for something
 else. With the plugin's `gestureOpen` setting off, or the plugin disabled, the
-gesture lines are written and ignored; the key lines are ignored too, and
-Super + Tab does whatever your own config binds there.
+gesture lines are written and ignored; the key lines are ignored too. Note that
+the include has already **unbound** the stock `Super + Tab` bind, so disabling
+the plugin leaves that key doing nothing — also comment out the include (and
+log in again, since a reload does not re-run the Lua config) to get it back.
+Removing the plugin without removing the include has the same effect.
 
 ## How it changes your key bindings
 
 It doesn't, at runtime: the keys it uses are the Lua binds the include
-registers, in your own config. Nothing is taken over, and disabling the plugin
-(or removing it) needs no cleanup — the stream lines are simply ignored.
+registers, in your own config. The include does take the chord over at config
+load — it unbinds Omarchy's stock bind before installing its own — so removing
+the plugin also means removing the include. Unloading the plugin alone restores
+nothing; the bind is still there, writing lines nobody reads.
 
 | Keys | With the binds + plugin |
 |---|---|
@@ -173,7 +182,7 @@ independent of the others.
 | **Card order** | `numericOrder` (`false`: order of visit, current first) | `true` (1, 2, 3 …) |
 | **Preview capture spacing** | `captureStaggerMs` (`0` = every preview at once) | `8` ms |
 | **Whether the sheet waits for its previews** | `previewWaitMs` (`200` ≈ appear already populated) | `0` (reveal at once, previews land within ~0.1–0.2 s) |
-| **The whole plugin** | `omarchy plugin disable io.github.antoniowav.workspace-switcher` | enabled |
+| **The whole plugin** | `omarchy plugin disable io.github.antoniowav.workspace-switcher` — then also comment out the wiring include: the include unbinds `Super + Tab` itself, so the key stays dead until it is removed | enabled |
 | **Just the wiring** | comment out the include in your config | included |
 
 Not switchable: while the overview is up it holds a keyboard-shortcuts inhibitor,
@@ -288,7 +297,7 @@ Not verified by testing — reasoned from source, or untested hardware:
 - **Other trackpads** — `swipeTravel` (320 px) and the 30 % commit threshold
   were tuned on this one. Nothing breaks elsewhere; the feel differs.
 - **Other versions** — quickshell ≠ 0.2.1, Hyprland ≠ 0.56.2 and non-Omarchy
-  shells are untested. The plugin imports `qs.Commons`/`qs.Ui`, so it is
+  shells are untested. The plugin imports `qs.Commons`, so it is
   Omarchy-only by design; the wiring file depends on 0.56's `gesture` keyword
   and its `finish` release callback.
 - **Multi-monitor** — the overview targets the focused monitor and the geometry
@@ -298,9 +307,10 @@ Not verified by testing — reasoned from source, or untested hardware:
   1920×1080 fraction grid.
 - **Plugin code changes need a shell restart** — Omarchy's plugin watcher
   exists, but it did not reload this plugin for a file edit during testing.
-- **`omarchy plugin update` overwrites a modified checkout** — this fork lives
-  as a git checkout under `~/.config/omarchy/plugins/`, so keep changes committed
-  and pushed rather than edited in place.
+- **`omarchy plugin update` will not fast-forward a checkout with local
+  changes** — it fetches and merges `--ff-only`, and refuses (keeping your
+  work) when the checkout is dirty; untracked files survive. Keep changes
+  committed and pushed rather than edited in place so the update can apply.
 
 The alpha note under Requirements is specific to quickshell 0.2.1: if a future
 version passes the texture's alpha flag itself, this plugin's workaround becomes

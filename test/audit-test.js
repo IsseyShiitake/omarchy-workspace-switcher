@@ -551,11 +551,13 @@ check("the preview wait is clamped to 0..1000", () => {
   assert.equal(L.parseSettings('{"previewWaitMs": 99999}').previewWaitMs, 1000)
   assert.equal(L.parseSettings('{"previewWaitMs": "soon"}').previewWaitMs, 0)
 })
-check("a NaN stagger falls back to the default", () => {
-  // JSON cannot hold NaN, but a hand-built object could reach the parser.
-  const text = '{"captureStaggerMs": 1e999}'
-  const parsed = L.parseSettings(text)
-  assert.ok(Number.isFinite(parsed.captureStaggerMs), "non-finite stagger survived")
+check("a non-finite stagger falls back to the default", () => {
+  // JSON cannot hold NaN; 1e999 parses as Infinity, and the parser rejects
+  // non-finite numbers by leaving the default. Assert the exact default: a
+  // mere "is finite" check would also pass if Infinity were clamped to 500,
+  // which is a different behaviour.
+  assert.equal(L.parseSettings('{"captureStaggerMs": 1e999}').captureStaggerMs, 8)
+  assert.equal(L.parseSettings('{"previewWaitMs": 1e999}').previewWaitMs, 0)
 })
 
 // ---------------------------------------------------------------------------
@@ -637,10 +639,19 @@ check("every function survives random arguments", () => {
     const fit = L.layoutFor(randInt(20), randInt(3000), randInt(2000), randInt(40), randInt(40), 16 / 9)
     assert.ok(Number.isFinite(fit.cardW) && fit.cardW >= 0, "bad layout " + JSON.stringify(fit))
     assert.ok(fit.cols >= 1)
-    const sel = L.moveSelection(randInt(20), randInt(3) - 1, randInt(3) - 1, 1 + randInt(6), randInt(20))
-    assert.ok(sel >= 0 && sel < 20)
-    const cyc = L.cycleSelection(randInt(20), randInt(9) - 4, 1 + randInt(20))
-    assert.ok(cyc >= 0 && cyc < 1 + randInt(20) || true)
+    // A move either stays on the same card (a step that would leave the grid)
+    // or lands on a card that exists. The count is drawn once and reused: the
+    // old form drew a fresh random bound for the assertion, so it could pass
+    // against a different count than the call was given — and carried a
+    // literal `|| true` that made it a no-op.
+    const count = randInt(20)
+    const cardIndex = randInt(20)
+    const sel = L.moveSelection(cardIndex, randInt(3) - 1, randInt(3) - 1, 1 + randInt(6), count)
+    assert.ok(sel === cardIndex || (sel >= 0 && sel < count),
+      "moveSelection left the grid: " + sel + " from " + cardIndex + " of " + count)
+    const cycleCount = 1 + randInt(20)
+    const cyc = L.cycleSelection(randInt(20), randInt(9) - 4, cycleCount)
+    assert.ok(cyc >= 0 && cyc < cycleCount, "cycleSelection out of range: " + cyc + " of " + cycleCount)
     L.parseSettings(pick(["", "{}", "{oops", '{"captureStaggerMs":3}', "null", "[]", '{"previewWaitMs":9}']))
     L.parseSwipe(pick(["begin up", "end down cancelled", "key next", "junk", "update up -3.5", ""]))
   }
