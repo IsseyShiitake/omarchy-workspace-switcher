@@ -388,6 +388,11 @@ check("an empty list is safe", () => {
 // ---------------------------------------------------------------------------
 section("assignCaptureOrder / countCaptureTargets")
 check("the focused card captures first, then the cards in display order", () => {
+  // This pins the intent under Node, whose sort is stable. Qt 6.11.2's V4
+  // engine is NOT stable: an all-equal comparator reorders the array, so the
+  // same code gives focused,3,0,1 for cards [0,1,2(focused),3] in the QML.
+  // See AUDIT-2026-10-21-project.md (W2); a two-pass implementation would
+  // make this hold on both engines.
   const pump = [
     { id: 1, focused: false, windows: [{}, {}] },
     { id: 2, focused: true, windows: [{}] },
