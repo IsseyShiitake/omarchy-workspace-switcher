@@ -23,6 +23,7 @@ function appNameIndex(entries) {
   var index = ({})
   for (var i = 0; i < (entries || []).length; ++i) {
     var entry = entries[i]
+    if (!entry) continue
     var name = String(entry.name || "")
     if (!name) continue
     if (entry.startupClass) index[String(entry.startupClass).toLowerCase()] = name
@@ -77,17 +78,18 @@ function windowLabel(cls, title, app) {
 // draw on top). `state` is hyprctl's monitors, workspaces and clients;
 // `waylandFor(address)` finds a window's toplevel for the live preview.
 function buildWorkspaces(state, names, waylandFor) {
+  var s = state || {}
   var monitors = ({})
   var visible = ({})
   var focusedId = -1
-  ;(state.monitors || []).forEach(function(m) {
+  ;(s.monitors || []).forEach(function(m) {
     monitors[m.id] = { x: m.x, y: m.y, w: m.width / (m.scale || 1), h: m.height / (m.scale || 1) }
     if (m.activeWorkspace) visible[m.activeWorkspace.id] = true
     if (m.focused && m.activeWorkspace) focusedId = m.activeWorkspace.id
   })
 
   var byId = ({})
-  ;(state.workspaces || []).forEach(function(w) {
+  ;(s.workspaces || []).forEach(function(w) {
     if (w.id <= 0) return
     if (w.windows === 0 && !visible[w.id]) return
     byId[w.id] = {
@@ -100,7 +102,7 @@ function buildWorkspaces(state, names, waylandFor) {
     }
   })
 
-  ;(state.clients || []).forEach(function(c) {
+  ;(s.clients || []).forEach(function(c) {
     if (!c || c.mapped === false || c.hidden === true) return
     var ws = byId[c.workspace ? c.workspace.id : -1]
     if (!ws) return
@@ -214,8 +216,14 @@ function layoutFor(n, areaW, areaH, gap, labelHeight, cardAspect) {
 }
 
 // The card index after moving by dx columns and dy rows, or the same one if
-// that would leave the grid.
+// that would leave the grid. Left and right stop at the edge of the row, up
+// and down at the edge of the grid: a walk never wraps into the neighbouring
+// row, which is what the vertical arrows are for.
 function moveSelection(index, dx, dy, cols, count) {
+  if (!(cols > 0)) return index
+  var col = index % cols
+  if (dx < 0 && col === 0) dx = 0
+  if (dx > 0 && col === cols - 1) dx = 0
   var next = index + dx + dy * cols
   return next >= 0 && next < count ? next : index
 }
@@ -260,7 +268,11 @@ function parseSwipe(line) {
     return { phase: "key", name: parts[1] }
   }
   if (parts[0] !== "begin" && parts[0] !== "update" && parts[0] !== "end") return null
-  var event = { phase: parts[0], dir: parts[1] === "down" ? "down" : "up", dy: 0, cancelled: false }
+  // The stream only ever carries up and down. Anything else is a line from
+  // something else (or a corrupted one) and must not be read as a gesture:
+  // an unknown direction read as "up" would open the overview.
+  if (parts[1] !== "up" && parts[1] !== "down") return null
+  var event = { phase: parts[0], dir: parts[1], dy: 0, cancelled: false }
   if (parts[0] === "update") {
     var dy = parseFloat(parts[2])
     if (isNaN(dy)) return null

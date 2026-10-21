@@ -166,13 +166,19 @@ for (const n of [1, 2, 3, 4, 5, 6, 8, 12]) {
 assert.deepEqual(L.layoutFor(1, 1000, 700, 10, 20, 16 / 9), { cols: 1, cardW: 420 })
 assert.equal(L.layoutFor(0, 1000, 700, 10, 20, 16 / 9).cols, 1) // degenerate: one column
 
-// Arrow keys walk the grid and stop at its edges.
-assert.equal(L.moveSelection(2, 1, 0, 3, 6), 3)
+// Arrow keys walk the grid and stop at its edges. Left and right stop at the
+// edge of the row (they never wrap into the neighbouring row), up and down at
+// the edge of the grid.
+assert.equal(L.moveSelection(1, 1, 0, 3, 6), 2)
 assert.equal(L.moveSelection(2, -1, 0, 3, 6), 1)
 assert.equal(L.moveSelection(2, 0, 1, 3, 6), 5)
 assert.equal(L.moveSelection(2, 0, -1, 3, 6), 2)
 assert.equal(L.moveSelection(5, 1, 0, 3, 6), 5)
 assert.equal(L.moveSelection(0, 0, -1, 3, 6), 0)
 assert.equal(L.moveSelection(4, 0, 1, 3, 6), 4)
+// The row edges: the last card of a row does not walk into the next row, and
+// the first card of a row does not walk back into the previous one.
+assert.equal(L.moveSelection(2, 1, 0, 3, 6), 2)
+assert.equal(L.moveSelection(3, -1, 0, 3, 6), 3)
 
 console.log("ok")

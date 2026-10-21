@@ -40,7 +40,9 @@ rebound to Super + Tab so Alt + Tab stays free for window cycling.
   (a shorter drag snaps back open); swiping down while it is closed does
   nothing.
 - Click a window to focus it, or click empty space in a card to go to that workspace.
-  The arrow keys and Return work too, and Escape closes it.
+  The arrow keys and Return work too, and Escape closes it. The arrows walk the
+  card grid: left and right stop at the edge of the row, up and down at the
+  edge of the grid — they never jump into the neighbouring row.
 - While the overview is showing it holds a keyboard-shortcuts inhibitor, so
   nothing can change the desktop under it: Super+digit workspace jumps,
   Super+Ctrl+arrows and the three-finger horizontal workspace swipe are muted
@@ -232,10 +234,12 @@ number order. The order starts fresh when the shell restarts.
 ## Requirements
 
 Omarchy 4 (Quattro) with its Quickshell shell and Hyprland 0.56 or later. No
-other dependencies. The plugin runs `hyprctl` to read your workspaces and windows
-and to switch workspaces; the keys and gestures come from the wiring file you
-include in your own config (see Install), never from the plugin. It needs no
-network access and no privileges.
+other dependencies beyond the ones a Linux system already has: the plugin runs
+`hyprctl` to read your workspaces and windows and to switch workspaces, and
+the shell utilities `tail`, `truncate` and `touch` (coreutils) to follow and
+reset its input stream, plus `sh` for the state query. The keys and gestures
+come from the wiring file you include in your own config (see Install), never
+from the plugin. It needs no network access and no privileges.
 
 **Known quickshell 0.2.1 issue (worked around here):** on the dmabuf screencopy
 path the texture wrapper is format-blind (`QSGOpenGLTexture::fromNative` without
@@ -319,7 +323,18 @@ Every implementation and every inherited bugfix this fork carries is listed in
 
 ## Development
 
-The logic is in `WorkspaceSwitcherLogic.js` and is tested with `node test/logic-test.js`.
+The logic is in `WorkspaceSwitcherLogic.js`; the rest is in
+`WorkspaceSwitcher.qml` and `hypr/workspace-switcher.lua`. Three test suites
+cover them:
+
+```bash
+node test/logic-test.js      # the behaviour of the logic
+node test/audit-test.js      # edge cases, a fuzz pass, and the QML's invariants
+luajit test/lua-test.lua     # the Hyprland wiring, against a stubbed hl API
+```
+
+The Lua test is hermetic: it pins the wiring's `XDG_RUNTIME_DIR` to a scratch
+directory of its own, so it never writes to the session's live input stream.
 
 ## License
 

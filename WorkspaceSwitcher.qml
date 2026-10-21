@@ -4,7 +4,6 @@ import Quickshell.Hyprland
 import Quickshell.Io
 import Quickshell.Wayland
 import qs.Commons
-import qs.Ui
 import "WorkspaceSwitcherLogic.js" as Logic
 
 // Workspace Switcher: every workspace that has windows (plus the visible ones)
@@ -24,10 +23,14 @@ import "WorkspaceSwitcherLogic.js" as Logic
 Item {
   id: root
 
+  // shell and manifest are injected by quickshell into a plugin's root object.
   property var shell: null
   property var manifest: null
 
+  // The id the global shortcuts register under: one place, so the five of them
+  // cannot drift apart.
   readonly property string appId: "io.github.antoniowav.workspace-switcher"
+
   property bool destroying: false
 
   property bool opened: false
@@ -482,6 +485,11 @@ Item {
     path: root.settingsPath
     watchChanges: true
     printErrors: false
+    // watchChanges only WATCHES the file: it reports the change through
+    // fileChanged, it does not read the new content. Without this reload the
+    // settings never change (measured: the file is written, the plugin keeps
+    // the old values). The parse above is a binding on the text, so it
+    // re-runs as soon as the file is read again.
     onFileChanged: reload()
   }
 
@@ -603,21 +611,21 @@ Item {
   }
 
   GlobalShortcut {
-    appid: "io.github.antoniowav.workspace-switcher"
+    appid: root.appId
     name: "toggle"
     description: "Open or close the workspace overview"
     onPressed: root.toggle()
   }
 
   GlobalShortcut {
-    appid: "io.github.antoniowav.workspace-switcher"
+    appid: root.appId
     name: "next"
     description: "Open the workspace overview, or select the next workspace"
     onPressed: root.cycle(1)
   }
 
   GlobalShortcut {
-    appid: "io.github.antoniowav.workspace-switcher"
+    appid: root.appId
     name: "previous"
     description: "Open the workspace overview, or select the previous workspace"
     onPressed: root.cycle(-1)
@@ -626,14 +634,14 @@ Item {
   // Hyprland sends this one from a release binding, as a release; commit() is
   // idempotent, so handling the release alone is enough.
   GlobalShortcut {
-    appid: "io.github.antoniowav.workspace-switcher"
+    appid: root.appId
     name: "commit"
     description: "Go to the selected workspace if Super + Tab opened the overview"
     onReleased: root.commit()
   }
 
   GlobalShortcut {
-    appid: "io.github.antoniowav.workspace-switcher"
+    appid: root.appId
     name: "close"
     description: "Close the workspace overview"
     // Unconditional: close() is idempotent, and a half-revealed sheet (opened
@@ -760,9 +768,6 @@ Item {
             required property int index
             required property var modelData
 
-            // Preview content is counted once for the preview wait, even if a
-            // capture context is ever torn down and rebuilt.
-            property bool counted: false
             readonly property bool selected: index === root.highlighted
             width: area.fit.cardW
             height: width / root.cardAspect + root.labelHeight
@@ -848,6 +853,14 @@ Item {
                     id: win
                     required property var modelData
 
+                    // Preview content is counted once per window for the
+                    // preview wait, even if a capture context is ever torn
+                    // down and rebuilt. The flag has to live on the window:
+                    // captureTargets counts windows, so a per-card flag would
+                    // stop the counter short whenever a workspace holds more
+                    // than one window, and the wait would never end early.
+                    property bool counted: false
+
                     x: modelData.x * screenArea.width
                     y: modelData.y * screenArea.height
                     width: Math.max(8, modelData.w * screenArea.width)
@@ -912,8 +925,8 @@ Item {
                       // dmabuf formats.
                       opacity: hasContent ? 0.995 : 0
                       onHasContentChanged: {
-                        if (!hasContent || card.counted) return
-                        card.counted = true
+                        if (!hasContent || win.counted) return
+                        win.counted = true
                         root.captureLanded += 1
                         if (root.captureLanded >= root.captureTargets) root.revealReady = true
                       }

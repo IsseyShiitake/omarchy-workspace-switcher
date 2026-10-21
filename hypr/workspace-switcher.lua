@@ -35,7 +35,12 @@ if SWITCHER_MOD ~= "ALT" then SWITCHER_MOD = "SUPER" end
 
 local HORIZONTAL_SWIPE = _G.OMARCHY_SWITCHER_HORIZONTAL_SWIPE == true
 
-local RUNTIME = os.getenv("XDG_RUNTIME_DIR") or "/tmp"
+-- The stream lives in the session's runtime dir, or in /tmp when the shell has
+-- none. An empty XDG_RUNTIME_DIR is not a usable path, and "" is truthy in
+-- Lua, so the plain "or" fallback would not catch it: both sides must agree
+-- on the path, and the plugin's QML falls back to /tmp for an empty value too.
+local RUNTIME = os.getenv("XDG_RUNTIME_DIR")
+if not RUNTIME or RUNTIME == "" then RUNTIME = "/tmp" end
 local STREAM = RUNTIME .. "/omarchy-workspace-switcher-swipe"
 
 -- Stream writer --------------------------------------------------------------

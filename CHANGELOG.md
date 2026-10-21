@@ -18,6 +18,7 @@ the table are tagged.
 | 1.4.4 | tag `v1.4.4` | 2026-10-09 | wiring ships with the plugin, stream moves to `$XDG_RUNTIME_DIR` |
 | 1.4.5 | tag `v1.4.5` | 2026-10-09 | closing swipe made symmetric: 30 % of the travel, like opening |
 | 1.4.6 | tag `v1.4.6` | 2026-10-11 | Super + Tab no longer also fires Omarchy's stock Next workspace bind |
+| 1.4.7 | tag `v1.4.7` | 2026-10-21 | preview wait ends when the previews land; arrow keys stop at the row edge; robustness pass |
 
 ## Implementations (new on top of upstream)
 
@@ -117,3 +118,49 @@ are recorded in the commit messages.
     chord it takes over before binding it (in the ALT arrangement, Omarchy's
     `Alt + Tab`, which is the key that arrangement exists to free). Same defect,
     found independently, as upstream's 1.4.5.
+11. **The preview wait never ended early** (1.4.7) — the counter of landed
+     previews lived on the *card* delegate while the counter of windows that can
+     land one lives per window, so the two counted different things: the wait
+     compared a number of cards with a number of windows and could never be
+     satisfied as soon as one workspace held more than one window. With
+     `previewWaitMs` set, the sheet then always waited the full timeout instead
+     of appearing as soon as its previews were there. Measured on three
+     windows in one workspace: the counter stopped at 1 of 3 and the sheet
+     revealed on the timeout; it now reaches 3 of 3 and reveals with the
+     previews.
+12. **The arrow keys walked into the neighbouring row** (1.4.7) — left and right
+     were bounded by the grid, not by the row, so the last card of a row walked
+     into the first card of the next one and the first card of a row walked
+     back into the last card of the previous one. They now stop at the edge of
+     the row, like up and down stop at the edge of the grid.
+13. **An unknown gesture direction was read as "up"** (1.4.7) — the input
+     parser treated every direction that was not "down" as "up", so a line from
+     something else could open the overview. It now accepts "up" and "down"
+     only.
+14. **The wiring and the plugin could disagree on the stream path** (1.4.7) —
+     the plugin falls back to `/tmp` when `XDG_RUNTIME_DIR` is empty, the
+     wiring did not (`""` is truthy in Lua), so with an empty runtime dir the
+     writer would have written to `/omarchy-workspace-switcher-swipe` while the
+     reader tailed `/tmp/omarchy-workspace-switcher-swipe`: the stream would
+     silently never have worked. Both sides now fall back the same way.
+15. **Two unguarded reads** (1.4.7) — the app-name index threw on a null
+     desktop entry and the workspace builder on a null state. Neither was
+     reachable from the plugin, but both are one bad value away from taking
+     the overview down.
+
+## Robustness and clean-up (1.4.7)
+
+- The preview counter is per window (see bugfix 11).
+- The arrow keys stop at the edge of the row (see bugfix 12).
+- The input parser rejects unknown directions (see bugfix 13).
+- The wiring and the plugin agree on the runtime-dir fallback (see bugfix 14).
+- The app-name index and the workspace builder survive null input.
+- The five global shortcuts register under one `appId` property instead of
+  repeating the string, and the plugin no longer imports `qs.Ui`, which it
+  never used.
+- The README now names the shell utilities the plugin uses (`tail`,
+  `truncate`, `touch`, `sh`) instead of claiming `hyprctl` is the only one.
+- Three test suites now cover the plugin: `node test/logic-test.js` (the
+  behaviour), `node test/audit-test.js` (edge cases, a fuzz pass and the QML's
+  invariants) and `luajit test/lua-test.lua` (the Hyprland wiring, against a
+  stubbed `hl` API — it had no test at all before).
