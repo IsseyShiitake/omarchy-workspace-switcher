@@ -250,6 +250,35 @@ check("a client with broken geometry is skipped, not NaN-poisoned", () => {
       && Number.isFinite(w.w) && Number.isFinite(w.h), "non-finite geometry")
   }
 })
+check("NaN and Infinity geometry is rejected, not just non-numbers", () => {
+  // typeof NaN is "number" and JSON.parse turns 1e999 into Infinity, so a
+  // typeof-only guard would let both through and NaN-poison the card.
+  const clients = [
+    { address: "0x1", at: [NaN, 0], size: [10, 10] },
+    { address: "0x2", at: [0, Infinity], size: [10, 10] },
+    { address: "0x3", at: [0, 0], size: [NaN, 10] },
+    { address: "0x4", at: [0, 0], size: [10, Infinity] },
+    { address: "0x5", at: [0, 0], size: [10, 10] },
+  ].map((c) => Object.assign({ class: "foot", title: "t", workspace: { id: 1 } }, c))
+  const list = L.buildWorkspaces(state({ clients }), {}, null)
+  assert.equal(list[0].windows.length, 1)
+  assert.equal(list[0].windows[0].address, "0x5")
+})
+check("a wrong-shaped state yields no cards instead of throwing", () => {
+  for (const s of [{ monitors: {} }, { workspaces: {} }, { clients: {} },
+    { monitors: "x" }, { monitors: [null] }, { workspaces: [null] }, { clients: [null] }]) {
+    assert.deepEqual(L.buildWorkspaces(s, {}, null), [], JSON.stringify(s))
+  }
+  assert.deepEqual(L.buildWorkspaces(5, {}, null), [])
+})
+check("a monitor with non-finite geometry falls back to the default grid", () => {
+  const list = L.buildWorkspaces(state({
+    monitors: [{ id: 0, x: 0, y: 0, width: NaN, height: 1080, scale: 1,
+      activeWorkspace: { id: 1 }, focused: true }],
+  }), {}, null)
+  assert.equal(list[0].monitor.w, 1920)
+  assert.equal(list[0].monitor.h, 1080)
+})
 check("a client on a workspace that is not listed is dropped", () => {
   const list = L.buildWorkspaces(state({
     clients: [{ address: "0x9", class: "foot", title: "t", at: [0, 0], size: [10, 10],
@@ -281,6 +310,19 @@ check("floating windows sort last, so they draw on top", () => {
   }), {}, null)
   assert.equal(list[0].windows[0].floating, false)
   assert.equal(list[0].windows[1].floating, true)
+})
+check("the floating partition keeps hyprctl order within each group", () => {
+  // A sort by "floating" would reorder the equal elements on Qt's V4 engine;
+  // two passes pin tiled-first, then floating, each in input order.
+  const clients = [
+    { address: "0x1", floating: false }, { address: "0x2", floating: true },
+    { address: "0x3", floating: false }, { address: "0x4", floating: true },
+    { address: "0x5", floating: false },
+  ].map((c) => Object.assign({ class: "foot", title: "t", at: [0, 0], size: [10, 10],
+    workspace: { id: 1 } }, c))
+  const list = L.buildWorkspaces(state({ clients }), {}, null)
+  assert.deepEqual(list[0].windows.map((w) => w.address),
+    ["0x1", "0x3", "0x5", "0x2", "0x4"])
 })
 check("the wayland surface is looked up per address", () => {
   const list = L.buildWorkspaces(state({
@@ -388,20 +430,30 @@ check("an empty list is safe", () => {
 // ---------------------------------------------------------------------------
 section("assignCaptureOrder / countCaptureTargets")
 check("the focused card captures first, then the cards in display order", () => {
-  // This pins the intent under Node, whose sort is stable. Qt 6.11.2's V4
-  // engine is NOT stable: an all-equal comparator reorders the array, so the
-  // same code gives focused,3,0,1 for cards [0,1,2(focused),3] in the QML.
-  // See AUDIT-2026-10-21-project.md (W2); a two-pass implementation would
-  // make this hold on both engines.
+  // Ordered passes, not a sort: Node's sort is stable, but Qt 6.11.2's V4
+  // engine is not (an all-equal comparator reorders the array), so a sort
+  // would scramble this in the running shell. Four cards with three
+  // non-focused ones pin the order a sort would have been free to change.
   const pump = [
     { id: 1, focused: false, windows: [{}, {}] },
-    { id: 2, focused: true, windows: [{}] },
-    { id: 3, focused: false, windows: [{}] },
+    { id: 2, focused: false, windows: [{}] },
+    { id: 3, focused: true, windows: [{}] },
+    { id: 4, focused: false, windows: [{}] },
   ]
-  assert.equal(L.assignCaptureOrder(pump), 4)
-  assert.deepEqual(pump[1].windows.map((w) => w.captureOrder), [0])
+  assert.equal(L.assignCaptureOrder(pump), 5)
+  assert.deepEqual(pump[2].windows.map((w) => w.captureOrder), [0])
   assert.deepEqual(pump[0].windows.map((w) => w.captureOrder), [1, 2])
-  assert.deepEqual(pump[2].windows.map((w) => w.captureOrder), [3])
+  assert.deepEqual(pump[1].windows.map((w) => w.captureOrder), [3])
+  assert.deepEqual(pump[3].windows.map((w) => w.captureOrder), [4])
+})
+check("without a focused card every card keeps its display order", () => {
+  const cards = [
+    { id: 1, windows: [{}] },
+    { id: 2, windows: [{}] },
+    { id: 3, windows: [{}] },
+  ]
+  assert.equal(L.assignCaptureOrder(cards), 3)
+  assert.deepEqual(cards.map((c) => c.windows[0].captureOrder), [0, 1, 2])
 })
 check("every window gets exactly one slot, no gaps and no duplicates", () => {
   const cards = []

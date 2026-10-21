@@ -11,8 +11,8 @@ import "WorkspaceSwitcherLogic.js" as Logic
 // their real positions as previews.
 //
 // Input rides one stream: $XDG_RUNTIME_DIR/omarchy-workspace-switcher-swipe
-// (/tmp when the shell has no runtime dir), one line per
-// event, written by gesture callbacks and Lua-function key binds in
+// (a private 0700 cache directory when the shell has no runtime dir), one line
+// per event, written by gesture callbacks and Lua-function key binds in
 // hyprland.lua (gesture phases as "begin/update/end" lines, keys as
 // "key next/previous/commit/toggle/close"). The plugin tails the file — no
 // runtime key takeover, nothing to restore on unload, and the shell's
@@ -97,9 +97,21 @@ Item {
   //   $XDG_RUNTIME_DIR/omarchy-workspace-switcher-swipe   (one line per input event)
   readonly property string settingsPath: Quickshell.env("HOME") + "/.config/omarchy/workspace-switcher.json"
   // The input stream lives in the session runtime dir when there is one (it is
-  // 0700 and per-session, so no other local user or session can inject lines);
-  // /tmp stays as the fallback for a shell started without XDG_RUNTIME_DIR.
-  readonly property string swipeDir: Quickshell.env("XDG_RUNTIME_DIR") !== "" ? Quickshell.env("XDG_RUNTIME_DIR") : "/tmp"
+  // 0700 and per-session, so no other local user or session can inject lines).
+  // Without one, fall back to a per-user cache directory created 0700 — never
+  // straight into /tmp, where a fixed name can be pre-created by another local
+  // user as a file (denying the stream) or a symlink (making the plugin's
+  // truncate hit a file of theirs). /tmp remains only as the last resort when
+  // neither XDG_CACHE_HOME nor HOME is set; the subdirectory is then 0700 too.
+  readonly property string fallbackBase: {
+    var cache = Quickshell.env("XDG_CACHE_HOME")
+    if (cache !== "") return cache
+    var home = Quickshell.env("HOME")
+    return home !== "" ? home + "/.cache" : "/tmp"
+  }
+  readonly property string fallbackDir: fallbackBase + "/omarchy-workspace-switcher"
+  readonly property bool usingFallback: Quickshell.env("XDG_RUNTIME_DIR") === ""
+  readonly property string swipeDir: usingFallback ? fallbackDir : Quickshell.env("XDG_RUNTIME_DIR")
   readonly property string swipePath: swipeDir + "/omarchy-workspace-switcher-swipe"
 
   // Preview captures are handed out by the pump below: captureCount is how
@@ -382,10 +394,20 @@ Item {
 
     var entries = DesktopEntries.applications && DesktopEntries.applications.values
       ? DesktopEntries.applications.values : []
-    var list = Logic.buildWorkspaces(state, Logic.appNameIndex(entries), function(address) {
-      var top = toplevelByAddress[address]
-      return top ? top.wayland : null
-    })
+    // The builder guards its own input, but the overview must not be left
+    // half-open if anything else in it throws (a future field, a wrapper that
+    // lies about a type): log once and close, so the next press starts clean.
+    var list
+    try {
+      list = Logic.buildWorkspaces(state, Logic.appNameIndex(entries), function(address) {
+        var top = toplevelByAddress[address]
+        return top ? top.wayland : null
+      })
+    } catch (error) {
+      console.warn("io.github.antoniowav.workspace-switcher: failed to build the overview:", error)
+      close()
+      return
+    }
     if (list.length === 0) {
       close()
       return
@@ -439,7 +461,14 @@ Item {
     // The input stream file must exist before tail can follow it; the gesture
     // lines in hyprland.lua (re)create it on every swipe anyway. The retry
     // starts the tail after the touch has had a moment to land.
-    Quickshell.execDetached(["touch", swipePath])
+    if (usingFallback) {
+      // Create the 0700 directory and the file in one shell: two detached
+      // commands would have no ordering between them.
+      Quickshell.execDetached(["sh", "-c",
+        'mkdir -p -m 700 "$1" && touch "$2"', "sh", fallbackDir, swipePath])
+    } else {
+      Quickshell.execDetached(["touch", swipePath])
+    }
     swipeWatchRetry.start()
   }
 

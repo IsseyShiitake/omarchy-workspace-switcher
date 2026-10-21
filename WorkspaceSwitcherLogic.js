@@ -13,6 +13,13 @@ function normalizeAddress(value) {
   return /^0x[0-9a-f]+$/.test(address) ? address : ""
 }
 
+// typeof NaN and Infinity is "number", so a plain typeof check lets them
+// through. JSON.parse only produces Infinity for an out-of-range literal, but
+// the layout arithmetic turns either one into NaN fractions.
+function isFiniteNumber(value) {
+  return typeof value === "number" && isFinite(value)
+}
+
 function capitalize(text) {
   return text ? text.charAt(0).toUpperCase() + text.slice(1) : "Window"
 }
@@ -82,15 +89,19 @@ function buildWorkspaces(state, names, waylandFor) {
   var monitors = ({})
   var visible = ({})
   var focusedId = -1
-  ;(s.monitors || []).forEach(function(m) {
+  // state is JSON.parse of hyprctl output, so these are normally arrays; a
+  // wrong-shaped (but non-null) object must yield no cards, not a TypeError.
+  ;(Array.isArray(s.monitors) ? s.monitors : []).forEach(function(m) {
+    if (!m || !isFiniteNumber(m.id) || !isFiniteNumber(m.x) || !isFiniteNumber(m.y)
+      || !isFiniteNumber(m.width) || !isFiniteNumber(m.height)) return
     monitors[m.id] = { x: m.x, y: m.y, w: m.width / (m.scale || 1), h: m.height / (m.scale || 1) }
     if (m.activeWorkspace) visible[m.activeWorkspace.id] = true
     if (m.focused && m.activeWorkspace) focusedId = m.activeWorkspace.id
   })
 
   var byId = ({})
-  ;(s.workspaces || []).forEach(function(w) {
-    if (w.id <= 0) return
+  ;(Array.isArray(s.workspaces) ? s.workspaces : []).forEach(function(w) {
+    if (!w || !(w.id > 0)) return
     if (w.windows === 0 && !visible[w.id]) return
     byId[w.id] = {
       id: w.id,
@@ -102,7 +113,7 @@ function buildWorkspaces(state, names, waylandFor) {
     }
   })
 
-  ;(s.clients || []).forEach(function(c) {
+  ;(Array.isArray(s.clients) ? s.clients : []).forEach(function(c) {
     if (!c || c.mapped === false || c.hidden === true) return
     var ws = byId[c.workspace ? c.workspace.id : -1]
     if (!ws) return
@@ -110,8 +121,8 @@ function buildWorkspaces(state, names, waylandFor) {
     if (!address) return
     // A client without usable geometry would poison the layout with NaN.
     if (!Array.isArray(c.at) || !Array.isArray(c.size)
-      || typeof c.at[0] !== "number" || typeof c.at[1] !== "number"
-      || typeof c.size[0] !== "number" || typeof c.size[1] !== "number") return
+      || !isFiniteNumber(c.at[0]) || !isFiniteNumber(c.at[1])
+      || !isFiniteNumber(c.size[0]) || !isFiniteNumber(c.size[1])) return
     var app = appName(c.class || c.initialClass, names)
     ws.windows.push({
       address: address,
@@ -133,7 +144,15 @@ function buildWorkspaces(state, names, waylandFor) {
   var list = Object.keys(byId).map(function(k) { return byId[k] })
   list.sort(function(a, b) { return a.id - b.id })
   list.forEach(function(ws) {
-    ws.windows.sort(function(a, b) { return a.floating - b.floating })
+    // Two ordered passes, not a sort: "floating" compares equal for every
+    // tiled window (and for every floating one), and Qt's V4 engine does not
+    // sort equal elements stably, so a sort would scramble hyprctl's order
+    // inside each group. Tiled first, then floating, each in input order.
+    var tiled = []
+    var floating = []
+    for (var i = 0; i < ws.windows.length; ++i)
+      (ws.windows[i].floating ? floating : tiled).push(ws.windows[i])
+    ws.windows = tiled.concat(floating)
   })
   return list
 }
@@ -180,12 +199,19 @@ function initialSelection(ranked, display, pendingSteps) {
 // how many captures the pump has to issue.
 function assignCaptureOrder(cards) {
   var order = 0
-  var focusedFirst = (cards || []).slice().sort(function(a, b) {
-    return (b && b.focused ? 1 : 0) - (a && a.focused ? 1 : 0)
-  })
-  for (var i = 0; i < focusedFirst.length; ++i) {
-    var windows = focusedFirst[i] && focusedFirst[i].windows ? focusedFirst[i].windows : []
-    for (var j = 0; j < windows.length; ++j) windows[j].captureOrder = order++
+  var list = cards || []
+  // Ordered passes, not a sort: a comparator on "focused" alone compares
+  // equal for every other card, and Qt 6.11's V4 engine does not sort equal
+  // elements stably (Node does), so a sort scrambled the display order this
+  // function promises in the running shell. Focused cards keep their order,
+  // then every other card keeps its own.
+  for (var pass = 0; pass < 2; ++pass) {
+    for (var i = 0; i < list.length; ++i) {
+      var card = list[i]
+      if (!card || (pass === 0 ? !card.focused : !!card.focused)) continue
+      var windows = card.windows ? card.windows : []
+      for (var j = 0; j < windows.length; ++j) windows[j].captureOrder = order++
+    }
   }
   return order
 }

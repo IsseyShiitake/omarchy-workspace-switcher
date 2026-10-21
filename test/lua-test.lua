@@ -9,9 +9,9 @@
 -- Hermetic: the wiring derives its stream from XDG_RUNTIME_DIR, and this test
 -- truncates that stream and writes key lines to it, so it must never run
 -- against the session's real runtime dir (/run/user/<uid>) — doing so would
--- drive the *live* plugin. The test pins the wiring's XDG_RUNTIME_DIR to a
--- scratch directory of its own for the duration of the load, whatever the
--- caller's environment says.
+-- drive the *live* plugin. The test pins the wiring's XDG_RUNTIME_DIR (and,
+-- for the fallback cases, HOME and XDG_CACHE_HOME) to scratch directories of
+-- its own for the duration of the load, whatever the caller's environment says.
 local WIRING = (arg and arg[1]) or "hypr/workspace-switcher.lua"
 
 local function make_scratch()
@@ -79,6 +79,44 @@ local function load_wiring(mod, horizontal)
   local ok, err = pcall(dofile, WIRING)
   os.getenv = real_getenv
   if not ok then error(err, 0) end
+end
+
+-- Load the wiring with an explicit environment, for the fallback-path tests.
+local function load_wiring_env(runtime, home, cache)
+  binds, unbinds, gestures, calls = {}, {}, {}, {}
+  _G.__omarchy_workspace_switcher_wired = nil
+  _G.OMARCHY_SWITCHER_MOD = nil
+  _G.OMARCHY_SWITCHER_HORIZONTAL_SWIPE = nil
+  local real = os.getenv
+  os.getenv = function(name)
+    if name == "XDG_RUNTIME_DIR" then return runtime end
+    if name == "HOME" then return home end
+    if name == "XDG_CACHE_HOME" then return cache end
+    return real(name)
+  end
+  local ok, err = pcall(dofile, WIRING)
+  os.getenv = real
+  if not ok then error(err, 0) end
+end
+
+local function shell_quote(text)
+  return "'" .. text:gsub("'", "'\\''") .. "'"
+end
+
+local function dir_mode(path)
+  local pipe = io.popen("stat -c %a " .. shell_quote(path) .. " 2>/dev/null")
+  if not pipe then return nil end
+  local mode = pipe:read("*l")
+  pipe:close()
+  return mode
+end
+
+local function file_text(path)
+  local f = io.open(path, "r")
+  if not f then return nil end
+  local text = f:read("*a")
+  f:close()
+  return text
 end
 
 local function stream_lines()
@@ -169,45 +207,31 @@ check("no chord carries two binds", function()
     seen[b.chord] = true
   end
 end)
-check("an empty XDG_RUNTIME_DIR falls back to /tmp, not to the filesystem root", function()
-  -- "" is truthy in Lua, so "os.getenv(...) or '/tmp'" would take an empty
-  -- value as the runtime dir and write to /omarchy-workspace-switcher-swipe
-  -- while the plugin's QML side tails /tmp/omarchy-workspace-switcher-swipe:
-  -- the two would never meet.
-  local fallback = "/tmp/omarchy-workspace-switcher-swipe"
-  local root_path = "/omarchy-workspace-switcher-swipe"
-  local backup, existed = nil, false
-  local f = io.open(fallback, "r")
-  if f then backup = f:read("*a"); existed = true; f:close() end
-  local real = os.getenv
-  _G.__omarchy_workspace_switcher_wired = nil
-  os.getenv = function(name)
-    if name == "XDG_RUNTIME_DIR" then return "" end
-    return real(name)
-  end
-  local ok, err = pcall(dofile, WIRING)
-  os.getenv = real
-  if not ok then
-    if existed then local w = io.open(fallback, "w"); w:write(backup); w:close() end
-    error(err, 0)
-  end
-  local out = io.open(fallback, "r")
-  assert(out, "the fallback stream file was not written")
-  local content = out:read("*a")
-  out:close()
-  local rf = io.open(root_path, "r")
-  if rf then
-    local rc = rf:read("*a")
-    rf:close()
-    assert(not rc:find("init", 1, true), "the wiring wrote to the filesystem root")
-  end
-  -- put /tmp back the way it was
-  if existed then
-    local w = io.open(fallback, "w"); w:write(backup); w:close()
-  else
-    os.remove(fallback)
-  end
+-- ---------------------------------------------------------------------------
+print("- the fallback directory")
+local FALLBACK_HOME = make_scratch()
+local OLD_TMP = "/tmp/omarchy-workspace-switcher-swipe"
+local old_tmp_text = file_text(OLD_TMP)
+
+check("an empty XDG_RUNTIME_DIR uses a 0700 cache directory, not /tmp", function()
+  load_wiring_env("", FALLBACK_HOME, nil)
+  local dir = FALLBACK_HOME .. "/.cache/omarchy-workspace-switcher"
+  eq(dir_mode(dir), "700", "fallback directory mode")
+  local content = file_text(dir .. "/omarchy-workspace-switcher-swipe")
+  assert(content, "the fallback stream file was not written")
   assert(content:find("init", 1, true), "the init marker is missing from the fallback stream")
+  -- The old bare /tmp path must not be touched, and nothing goes to the root.
+  eq(file_text(OLD_TMP), old_tmp_text, "the old /tmp stream path was written")
+  assert(not file_text("/omarchy-workspace-switcher-swipe"),
+    "the wiring wrote to the filesystem root")
+end)
+check("XDG_CACHE_HOME wins over HOME for the fallback", function()
+  local cache = FALLBACK_HOME .. "/xdg-cache"
+  load_wiring_env("", FALLBACK_HOME, cache)
+  local dir = cache .. "/omarchy-workspace-switcher"
+  eq(dir_mode(dir), "700", "cache directory mode")
+  local content = file_text(dir .. "/omarchy-workspace-switcher-swipe")
+  assert(content and content:find("init", 1, true), "no init marker in the cache stream")
 end)
 
 -- ---------------------------------------------------------------------------
@@ -374,7 +398,7 @@ check("the stream stays bounded when nothing drains it", function()
 end)
 
 -- ---------------------------------------------------------------------------
-os.execute("rm -rf '" .. SCRATCH .. "'")
+os.execute("rm -rf " .. shell_quote(SCRATCH) .. " " .. shell_quote(FALLBACK_HOME))
 print("")
 if #failures > 0 then
   print(string.format("FAIL: %d of %d checks failed", #failures, checks))

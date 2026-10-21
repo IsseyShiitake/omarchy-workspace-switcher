@@ -35,12 +35,35 @@ if SWITCHER_MOD ~= "ALT" then SWITCHER_MOD = "SUPER" end
 
 local HORIZONTAL_SWIPE = _G.OMARCHY_SWITCHER_HORIZONTAL_SWIPE == true
 
--- The stream lives in the session's runtime dir, or in /tmp when the shell has
--- none. An empty XDG_RUNTIME_DIR is not a usable path, and "" is truthy in
--- Lua, so the plain "or" fallback would not catch it: both sides must agree
--- on the path, and the plugin's QML falls back to /tmp for an empty value too.
-local RUNTIME = os.getenv("XDG_RUNTIME_DIR")
-if not RUNTIME or RUNTIME == "" then RUNTIME = "/tmp" end
+-- The stream lives in the session's runtime dir when there is one. Without
+-- one it goes to a per-user cache directory created 0700 — the same fallback
+-- the plugin's QML computes — never straight into /tmp, where a fixed name
+-- can be pre-created by another local user as a file or a symlink. /tmp is
+-- only the last resort when neither XDG_CACHE_HOME nor HOME is set; the
+-- subdirectory is created 0700 there too.
+-- "" is truthy in Lua, so an empty variable must be tested explicitly.
+local function env(name)
+    local value = os.getenv(name)
+    if value == "" then return nil end
+    return value
+end
+
+local function shell_quote(text)
+    return "'" .. text:gsub("'", "'\\''") .. "'"
+end
+
+local RUNTIME = env("XDG_RUNTIME_DIR")
+if not RUNTIME then
+    local base = env("XDG_CACHE_HOME")
+    if not base then
+        local home = env("HOME")
+        base = home and (home .. "/.cache") or nil
+    end
+    RUNTIME = (base or "/tmp") .. "/omarchy-workspace-switcher"
+    -- -p leaves an existing directory alone; the status is ignored as before:
+    -- a read-only home just leaves the writes below failing quietly.
+    os.execute("mkdir -p -m 700 " .. shell_quote(RUNTIME) .. " >/dev/null 2>&1")
+end
 local STREAM = RUNTIME .. "/omarchy-workspace-switcher-swipe"
 
 -- Stream writer --------------------------------------------------------------

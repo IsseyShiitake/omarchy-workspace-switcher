@@ -95,17 +95,14 @@ The plugin itself needs no restart.
 
 ## Keys and touchpad gestures
 
-All input rides one stream: `$XDG_RUNTIME_DIR/omarchy-workspace-switcher-swipe`
-(`/tmp` only if the shell was started without a runtime dir), one line per event,
-written by the wiring file's gesture callbacks and Lua-function key binds and
-tailed live by the plugin. No runtime key takeover, nothing to restore on unload,
-nothing that breaks on a config reload — and because the stream lives in the
-session runtime dir (mode 0700) no other local user or session can inject lines
-into it. The `/tmp` fallback has no such protection: it is a fixed name in a
-world-writable directory, so another local user can pre-create the file (or a
-symlink at that name) and either feed the plugin input or make it truncate a
-file you own. It only applies to a shell started without `XDG_RUNTIME_DIR`,
-which a normal Omarchy session does not do.
+All input rides one stream: `$XDG_RUNTIME_DIR/omarchy-workspace-switcher-swipe`,
+or `$XDG_CACHE_HOME/omarchy-workspace-switcher/omarchy-workspace-switcher-swipe`
+(`$HOME/.cache/…` when `XDG_CACHE_HOME` is unset) for a shell started without a
+runtime dir. Both directories are 0700, so no other local user or session can
+read or inject lines. The old `/tmp` fallback is gone; `/tmp` remains only as
+the last resort when neither `XDG_CACHE_HOME` nor `HOME` is set, and even then
+the stream lives in a 0700 subdirectory rather than a predictable file at the
+top of `/tmp`.
 
 The wiring itself ships in the plugin as
 [`hypr/workspace-switcher.lua`](hypr/workspace-switcher.lua), pulled in by the one
@@ -245,8 +242,9 @@ number order. The order starts fresh when the shell restarts.
 Omarchy 4 (Quattro) with its Quickshell shell and Hyprland 0.56 or later. No
 other dependencies beyond the ones a Linux system already has: the plugin runs
 `hyprctl` to read your workspaces and windows and to switch workspaces, and
-the shell utilities `tail`, `truncate` and `touch` (coreutils) to follow and
-reset its input stream, plus `sh` for the state query. The keys and gestures
+the shell utilities `tail`, `truncate`, `touch` and `mkdir` (coreutils) to
+follow, reset and (in the fallback case) create its input stream, plus `sh`
+for the state query and the fallback directory creation. The keys and gestures
 come from the wiring file you include in your own config (see Install), never
 from the plugin. It needs no network access and no privileges.
 
@@ -324,7 +322,8 @@ omarchy plugin remove io.github.antoniowav.workspace-switcher
 
 Also remove the include block from `~/.config/hypr/hyprland.lua` (or
 `input.lua`). Nothing else to undo: the stream file in `$XDG_RUNTIME_DIR` is
-deleted with the session and would simply be ignored.
+deleted with the session and would simply be ignored; the fallback directory
+under `~/.cache` (only used without a runtime dir) can be deleted by hand.
 
 ## Changes
 

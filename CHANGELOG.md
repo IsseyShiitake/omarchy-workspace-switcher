@@ -19,6 +19,7 @@ the table are tagged.
 | 1.4.5 | tag `v1.4.5` | 2026-10-09 | closing swipe made symmetric: 30 % of the travel, like opening |
 | 1.4.6 | tag `v1.4.6` | 2026-10-11 | Super + Tab no longer also fires Omarchy's stock Next workspace bind |
 | 1.4.7 | tag `v1.4.7` | 2026-10-21 | preview wait ends when the previews land; arrow keys stop at the row edge; robustness pass |
+| 1.4.8 | tag `v1.4.8` | 2026-10-21 | engine-independent capture order; private fallback stream dir; state/geometry guards |
 
 ## Implementations (new on top of upstream)
 
@@ -148,6 +149,35 @@ are recorded in the commit messages.
      desktop entry and the workspace builder on a null state. Neither was
      reachable from the plugin, but both are one bad value away from taking
      the overview down.
+16. **The capture order depended on a stable sort** (1.4.8) — the windows were
+     numbered by sorting the cards on "focused" alone, so every other card
+     compared equal. Qt 6.11.2's V4 engine does not sort equal elements
+     stably (measured: an all-equal comparator turns `w0,w1,w2,w3` into
+     `w3,w2,w0,w1`), so the running shell numbered the non-focused cards in an
+     arbitrary order while the Node tests passed. Measured with the real logic
+     file under Qt's `qml`: focused,3,0,1 before, focused,0,1,3 after. Two
+     ordered passes replace the sort; the floating grouping in
+     `buildWorkspaces` got the same treatment (tiled first, then floating,
+     each in hyprctl order).
+17. **The fallback stream lived at a predictable `/tmp` path** (1.4.8) — with
+     an empty `XDG_RUNTIME_DIR` both sides fell back to
+     `/tmp/omarchy-workspace-switcher-swipe`. A fixed name in a world-writable
+     directory can be pre-created by another local user as a file (denying the
+     stream) or as a symlink (making the plugin's `truncate -s 0` empty a file
+     the victim owns). The fallback is now
+     `$XDG_CACHE_HOME/omarchy-workspace-switcher/` (or `$HOME/.cache/…`),
+     created 0700 on both sides; `/tmp` remains a last resort only when neither
+     variable is set, and even then in a 0700 subdirectory.
+18. **A wrong-shaped `hyprctl` state threw instead of closing** (1.4.8) — the
+     null guard added in 1.4.7 did not cover non-null non-arrays
+     (`{"monitors": {}}` and the like), which made `finishQuery` abort with a
+     TypeError. The builder now takes only arrays and drops non-object items,
+     and `finishQuery` wraps the build so any residual throw closes cleanly.
+19. **NaN and Infinity geometry passed the guard** (1.4.8) — it checked
+     `typeof … === "number"`, which NaN and Infinity satisfy, so such a client
+     still produced NaN fractions (and contradicted the comment above the
+     guard). The check is now `isFinite`; a monitor with non-finite geometry
+     falls back to the default 1920×1080 grid.
 
 ## Robustness and clean-up (1.4.7)
 
@@ -165,3 +195,20 @@ are recorded in the commit messages.
   behaviour), `node test/audit-test.js` (edge cases, a fuzz pass and the QML's
   invariants) and `luajit test/lua-test.lua` (the Hyprland wiring, against a
   stubbed `hl` API — it had no test at all before).
+
+## Robustness and security (1.4.8)
+
+- The capture order no longer depends on the engine sorting equal elements
+  stably: two ordered passes put the focused card's windows first, then the
+  rest in display order, on both Node and Qt's V4 (see bugfix 16).
+- The floating grouping in `buildWorkspaces` is an ordered partition too, so
+  the window order inside each group is deterministic (see bugfix 16).
+- A shell without `XDG_RUNTIME_DIR` gets a per-user 0700 fallback directory
+  under `$XDG_CACHE_HOME`/`$HOME/.cache`, on both the QML and the Lua side,
+  instead of a predictable file in `/tmp` (see bugfix 17).
+- The state builder accepts only arrays and drops non-object items; a residual
+  throw in `finishQuery` closes the overview with one log line (see bugfix 18).
+- Client geometry is checked with `isFinite`, and a monitor with non-finite
+  geometry falls back to the 1920×1080 grid (see bugfix 19).
+- The audit suite is at 92 checks (four new geometry/state/order checks) and
+  the Lua suite at 25 (the fallback directory's path and 0700 mode).
